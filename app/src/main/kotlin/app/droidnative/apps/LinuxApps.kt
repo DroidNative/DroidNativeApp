@@ -9,6 +9,7 @@ import app.droidnative.env.EnvPaths
 import app.droidnative.env.EnvService
 import app.droidnative.env.Proot
 import app.droidnative.env.Prefs
+import app.droidnative.env.StorageMounts
 import java.io.File
 import java.util.Locale
 import kotlin.math.abs
@@ -55,10 +56,39 @@ class LinuxApps(context: Context) {
     /** The listed entry with this id, or null. */
     fun find(id: String): DesktopEntry? = list().firstOrNull { it.id == id }
 
+    /**
+     * Entry for a name an application reports about itself (desktop-entry
+     * hint, MPRIS DesktopEntry or Identity): the id, case-insensitively, a
+     * reverse-DNS id ending in it, or the entry's name.
+     */
+    fun findLoose(name: String): DesktopEntry? {
+        if (name.isEmpty()) return null
+        val n = name.removeSuffix(".desktop")
+        val all = list()
+        return all.firstOrNull { it.id == n } ?: all.firstOrNull { it.id.equals(n, true) }
+            ?: all.firstOrNull { it.id.endsWith(".$n", true) } ?: all.firstOrNull { it.name.equals(n, true) }
+    }
+
     /** Icon as a bitmap, or null when the guest has none in a usable format. */
-    fun icon(entry: DesktopEntry): Bitmap? {
-        val file = iconFile(entry.icon) ?: return null
+    fun icon(entry: DesktopEntry): Bitmap? = icon(entry.icon)
+
+    /** Icon by theme name or guest path, like a desktop entry's Icon key. */
+    fun icon(name: String): Bitmap? {
+        val file = iconFile(name) ?: return null
         return BitmapFactory.decodeFile(file.path)
+    }
+
+    /**
+     * The host file behind guest path [path] (the runtime dir, storage
+     * binds, else the rootfs with its symlinks); null if it does not exist.
+     */
+    fun guestFile(path: String): File? {
+        if (!path.startsWith("/")) return null
+        val run = EnvPaths.GUEST_RUN_DIR + "/"
+        if (path.startsWith(run)) return File(paths.runDir, path.removePrefix(run)).takeIf { it.isFile }
+        for (m in StorageMounts.active(app))
+            if (path.startsWith(m.guest + "/")) return File(m.host, path.removePrefix(m.guest + "/")).takeIf { it.isFile }
+        return resolve(File(root, path.trimStart('/')))
     }
 
     private fun iconFile(icon: String): File? {

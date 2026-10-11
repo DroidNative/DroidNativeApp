@@ -6,7 +6,10 @@ ARCH="$1"
 
 log() { echo "[setup] $*"; }
 
+# Progress markers: see setup.sh
+command -v flatpak >/dev/null || echo "[setup-steps] 0"
 if command -v flatpak >/dev/null; then
+    echo "[setup-steps] 1"
     log "configuring flatpak"
     # Our drivers as an unmanaged GL extension; picked when the app's
     # environment has FLATPAK_GL_DRIVERS=droidnative (set by the app on KGSL
@@ -21,4 +24,4 @@ if command -v flatpak >/dev/null; then
     flatpak override --user --socket=wayland --socket=pulseaudio --device=all \
         --env=TU_DEBUG=noconform --env=PULSE_LATENCY_MSEC=150
 fi
-log "user setup done"
+echo "[setup-end]"

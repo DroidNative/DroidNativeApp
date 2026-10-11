@@ -77,6 +77,11 @@ the phone.
   them in the editor and pick the layout in an app's per-app settings. A
   finger between two buttons presses both. Layouts can be exported and imported
   as XML files.
+- **Notifications and media:** notifications from Linux apps appear as
+  Android notifications, with their buttons; tapping one opens the app.
+  Music and video players (Rhythmbox, for example) get Android's media
+  controls with cover, play/pause, skip and a seek bar.
+- **Volume:** the phone's volume buttons set the volume of Linux apps too.
 - **Keyboards and mice:** a USB or Bluetooth keyboard and mouse work as on
   a computer. Linux uses the keyboard layout set in Android (for example
   QWERTZ), including AltGr characters and accents.
@@ -138,8 +143,12 @@ targeting phones and tablets:
   [docs/device-passthrough.md](docs/device-passthrough.md).
 - `dn-gl <auto|zink|gl4es|llvmpipe> <command>` picks the OpenGL backend
   for one program.
+- Desktop notifications (`org.freedesktop.Notifications`, with actions,
+  markup and images) and MPRIS media players become Android notifications
+  and media sessions.
 
 More: [docs/architecture.md](docs/architecture.md),
+[docs/bridge-protocol.md](docs/bridge-protocol.md),
 [docs/on-screen-buttons.md](docs/on-screen-buttons.md),
 [docs/per-app-settings.md](docs/per-app-settings.md) and
 [docs/testing.md](docs/testing.md).

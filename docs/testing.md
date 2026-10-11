@@ -9,6 +9,7 @@ a phone over adb.
 | Host compositor | `tests/host/compositor/run.sh` | Wayland protocol handling of the compositor core (null renderer, ASan/UBSan) with `dn-wltest` and `weston-simple-shm` |
 | Host camera emulation | `tests/host/v4l2/run.sh` | PRoot's V4L2 device emulation against a fake camera, `v4l2-ctl` as client (needs the PC proot build in `.cache/hostproot`) |
 | Host per-app environment | `tests/host/appenv/run.sh` | `libdn-appenv` and dn-gl: which child programs keep an application's settings (PC guest of `.cache/hostproot`) |
+| Host notifications | `tests/host/notify/run.sh` | dn-notifyd: notifications (actions, hints, expiry, dismiss) and an MPRIS player relayed over the bridge socket; private bus in the PC guest (needs glib-devel, json-glib-devel, python3-gobject there) |
 | Host guest chroot | `tests/host/guest/chroot.sh <rootfs> <rundir> <cmd>` | runs guest scripts (`setup.sh`) in a Void rootfs on the PC |
 | Device suite | `tests/device/run.sh` | everything on real hardware, see below |
 

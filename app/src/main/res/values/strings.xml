@@ -29,6 +29,18 @@
     <string name="action_retry">Try again</string>
     <string name="status_install_hint">Downloads Void Linux and its packages, several hundred MB.</string>
 
+    <string name="channel_linux">Linux notifications</string>
+    <string name="channel_linux_low">Linux notifications (low priority)</string>
+    <string name="channel_linux_urgent">Linux notifications (urgent)</string>
+    <string name="channel_linux_media">Linux media players</string>
+    <string name="media_play">Play</string>
+    <string name="media_pause">Pause</string>
+    <string name="media_next">Next</string>
+    <string name="media_previous">Previous</string>
+    <string name="status_step">Step %1$d of %2$d</string>
+    <string name="install_log">Output</string>
+    <string name="install_log_show">Show</string>
+    <string name="install_log_hide">Hide</string>
     <string name="status_needs_update">Update needed</string>
     <string name="action_update">Update</string>
     <string name="status_needs_setup">Packages need installing or updating.</string>

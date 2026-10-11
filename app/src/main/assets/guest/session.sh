@@ -1,6 +1,7 @@
 #!/bin/sh
 # DroidNative session daemons, run inside the guest by the app for as long as
-# the environment is up: D-Bus session bus and PulseAudio. Stays in the
+# the environment is up: D-Bus session bus, PulseAudio, the notification and
+# media player relay, Xwayland. Stays in the
 # foreground; the app stops everything by ending the proot process.
 #
 # PulseAudio plays into a FIFO (module-pipe-sink); the app reads it and
@@ -12,6 +13,13 @@ rm -f "$RUN/bus" "$RUN/pulse/native" "$RUN/pulse/pid"
 dbus-daemon --config-file=/etc/droidnative/dbus-session.conf \
     --address="unix:path=$RUN/bus" --nofork --nopidfile &
 DBUS_PID=$!
+
+# Notifications and media players go to the app (dn-notifyd, bridge.sock)
+if command -v dn-notifyd >/dev/null; then
+    for _ in $(seq 50); do [ -S "$RUN/bus" ] && break; sleep 0.1; done
+    DBUS_SESSION_BUS_ADDRESS="unix:path=$RUN/bus" dn-notifyd &
+    NOTIFY_PID=$!
+fi
 
 # -n: only our script, no system defaults (no udev/ALSA/bluetooth here)
 pulseaudio -n -F /etc/droidnative/pulse.pa --daemonize=no --exit-idle-time=-1 \
@@ -55,6 +63,6 @@ if command -v dn-xwm >/dev/null && command -v Xwayland >/dev/null; then
     XWM_PID=$!
 fi
 
-echo "session: dbus=$DBUS_PID pulseaudio=$PULSE_PID xwm=${XWM_PID:-none}"
-trap 'kill $DBUS_PID $PULSE_PID ${MIC_PID:-} ${XWM_PID:-} 2>/dev/null' INT TERM
+echo "session: dbus=$DBUS_PID pulseaudio=$PULSE_PID xwm=${XWM_PID:-none} notify=${NOTIFY_PID:-none}"
+trap 'kill $DBUS_PID $PULSE_PID ${MIC_PID:-} ${XWM_PID:-} ${NOTIFY_PID:-} 2>/dev/null' INT TERM
 wait

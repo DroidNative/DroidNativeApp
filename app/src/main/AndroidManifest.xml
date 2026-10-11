@@ -90,6 +90,18 @@
                 android:value="@string/fgs_special_use" />
         </service>
 
+        <activity
+            android:name=".bridge.NotificationOpenActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
+        <receiver
+            android:name=".bridge.NotificationReceiver"
+            android:exported="false" />
+
         <receiver
             android:name=".env.BootReceiver"
             android:exported="true">

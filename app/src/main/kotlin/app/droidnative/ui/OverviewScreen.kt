@@ -49,7 +49,11 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -120,6 +124,7 @@ fun OverviewScreen() {
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(vertical = 16.dp)) {
         item { StatusCard(status, context) }
+        if (status.state == State.INSTALLING || status.state == State.ERROR) item { InstallLog() }
         val list = entries
         if (list != null) {
             item {
@@ -276,6 +281,21 @@ private fun StatusCard(status: EnvController.Status, context: Context) {
             if (detail.isNotEmpty())
                 Text(detail, style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+            val progress = status.progress
+            if (status.state == State.INSTALLING && progress != null) {
+                if (progress.total > 0) {
+                    val part = progress.fraction.coerceIn(0f, 1f)
+                    LinearProgressIndicator({ (progress.done + part) / progress.total }, Modifier.fillMaxWidth())
+                    Text(stringResource(R.string.status_step, minOf(progress.done + 1, progress.total), progress.total),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else if (progress.fraction >= 0f) {
+                    // Steps not known yet (rootfs download): this step's share
+                    LinearProgressIndicator({ progress.fraction }, Modifier.fillMaxWidth())
+                } else {
+                    LinearProgressIndicator(Modifier.fillMaxWidth())
+                }
+            }
             Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
                 when (status.state) {
                     State.NOT_INSTALLED -> Button({ EnvController.install(context) }) {
@@ -292,6 +312,32 @@ private fun StatusCard(status: EnvController.Status, context: Context) {
                         Text(stringResource(R.string.action_stop))
                     }
                     State.INSTALLING -> {}
+                }
+            }
+        }
+    }
+}
+
+/** Output of the install or update, collapsed by default; follows new lines. */
+@Composable
+private fun InstallLog() {
+    val lines by EnvController.installLog.collectAsStateWithLifecycle()
+    var open by rememberSaveable { mutableStateOf(false) }
+    OutlinedCard(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
+        Row(Modifier.fillMaxWidth().clickable { open = !open }.padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.install_log), Modifier.weight(1f),
+                style = MaterialTheme.typography.titleSmall)
+            Text(stringResource(if (open) R.string.install_log_hide else R.string.install_log_show),
+                style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        }
+        if (open) {
+            val list = rememberLazyListState()
+            LaunchedEffect(lines.size) { if (lines.isNotEmpty()) list.scrollToItem(lines.lastIndex) }
+            LazyColumn(Modifier.fillMaxWidth().height(240.dp).padding(horizontal = 12.dp), list,
+                contentPadding = PaddingValues(bottom = 12.dp)) {
+                items(lines) { line ->
+                    Text(line, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }

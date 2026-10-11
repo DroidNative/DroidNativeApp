@@ -27,18 +27,39 @@ case "$ARCH" in
     i686|armv7l) PKGS="$PKGS droidnative-tools gl4es" ;;   # no Flathub builds
 esac
 
+missing() {
+    for p in "$@"; do
+        xbps-query "$p" >/dev/null 2>&1 || echo "$p"
+    done
+}
+MISSING_REQUIRED=$(missing $REQUIRED)
+MISSING=$(missing $PKGS)
+MOVES=""
+for d in .local/share/flatpak .var .local/share/droidnative .local/share/applications \
+         .local/share/icons Applications; do
+    if [ -e "/root/$d" ] && [ ! -e "/home/user/$d" ]; then
+        MOVES="$MOVES $d"
+    fi
+done
+
+# Progress for the app (env/EnvController.kt): "[setup-steps] N" announces
+# the steps, each "[setup]" line starts one, "[setup-end]" ends the last
+set -- $MISSING_REQUIRED $MISSING $MOVES
+steps=$((4 + $#))
+id user >/dev/null 2>&1 || steps=$((steps + 1))
+echo "[setup-steps] $steps"
+
 log "updating xbps"
 xbps-install -Sy xbps
 log "updating base system"
 xbps-install -uy
-for p in $REQUIRED; do
-    if ! xbps-query "$p" >/dev/null 2>&1; then
-        log "installing $p (required)"
-        xbps-install -y "$p"
-    fi
+for p in $MISSING_REQUIRED; do
+    log "installing $p (required)"
+    xbps-install -y "$p"
 done
-for p in $PKGS; do
+for p in $MISSING; do
     if xbps-query "$p" >/dev/null 2>&1; then
+        log "$p already installed as a dependency"
         continue
     fi
     # droidnative-* come from the local repo, which may lack this arch
@@ -85,12 +106,9 @@ printf 'user ALL=(ALL:ALL) NOPASSWD: ALL\n' > /etc/sudoers.d/10-droidnative
 chmod 440 /etc/sudoers.d/10-droidnative
 
 # Installs made while everything ran as root move to the user's home
-for d in .local/share/flatpak .var .local/share/droidnative .local/share/applications \
-         .local/share/icons Applications; do
-    if [ -e "/root/$d" ] && [ ! -e "/home/user/$d" ]; then
-        log "moving /root/$d to /home/user"
-        mkdir -p "/home/user/$(dirname "$d")"
-        mv "/root/$d" "/home/user/$d"
-    fi
+for d in $MOVES; do
+    log "moving /root/$d to /home/user"
+    mkdir -p "/home/user/$(dirname "$d")"
+    mv "/root/$d" "/home/user/$d"
 done
-log "done"
+echo "[setup-end]"

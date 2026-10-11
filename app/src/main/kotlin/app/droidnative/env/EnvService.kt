@@ -17,6 +17,7 @@ import android.util.Log
 import android.hardware.display.DisplayManager
 import android.view.Display
 import app.droidnative.R
+import app.droidnative.bridge.Bridge
 import app.droidnative.devices.Devices
 import app.droidnative.display.Compositor
 import app.droidnative.display.WindowActivity
@@ -66,7 +67,7 @@ class EnvService : Service() {
         val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, WINDOW_CHANNEL)
                       else @Suppress("DEPRECATION") Notification.Builder(this)
         nm.notify(WINDOW_NOTIFICATION_BASE + tl.id, builder
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_penguin)
             .setContentTitle(getString(R.string.window_opened, name))
             .setContentText(getString(R.string.window_opened_text))
             .setContentIntent(open)
@@ -81,6 +82,8 @@ class EnvService : Service() {
         isRunning = true
         startInForeground()
         compositor.addListener(autoOpen)
+        // Before the session, whose dn-notifyd connects to it
+        Bridge.start(this)
         startCompositor(this)
         Session.start(this)
         Services.start(this)
@@ -96,6 +99,7 @@ class EnvService : Service() {
         Devices.stop()
         Services.stop()
         Session.stop()
+        Bridge.stop()
         compositor.stop()
         isRunning = false
         super.onDestroy()
@@ -110,7 +114,7 @@ class EnvService : Service() {
         val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL)
                       else @Suppress("DEPRECATION") Notification.Builder(this)
         val n = builder
-            .setSmallIcon(android.R.drawable.ic_menu_manage)
+            .setSmallIcon(R.drawable.ic_penguin)
             .setContentTitle(getString(R.string.env_running))
             .setOngoing(true)
             .build()

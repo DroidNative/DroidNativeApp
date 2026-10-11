@@ -55,6 +55,8 @@ class WindowActivity : Activity(), SurfaceHolder.Callback, Compositor.Listener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Volume keys set the media volume, which Linux audio plays at
+        volumeControlStream = android.media.AudioManager.STREAM_MUSIC
         toplevelId = intent.getIntExtra(EXTRA_TOPLEVEL, 0)
         compositor = EnvService.compositor
         val tl = compositor?.toplevels?.get(toplevelId)
@@ -384,6 +386,9 @@ class WindowActivity : Activity(), SurfaceHolder.Callback, Compositor.Listener {
             if (event.action == KeyEvent.ACTION_UP) moveTaskToBack(true)
             return true
         }
+        // Volume keys change Android's volume (Linux audio plays through it)
+        if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP || event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN ||
+            event.keyCode == KeyEvent.KEYCODE_VOLUME_MUTE) return super.dispatchKeyEvent(event)
         val code = KeyMap.toEvdev(event)
         if (code == 0)
             return super.dispatchKeyEvent(event)
