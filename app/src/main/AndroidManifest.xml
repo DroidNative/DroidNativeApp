@@ -34,7 +34,8 @@
 
     <application
         android:allowBackup="false"
-        android:icon="@android:drawable/sym_def_app_icon"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:requestLegacyExternalStorage="true"
         android:theme="@android:style/Theme.DeviceDefault"
@@ -51,12 +52,17 @@
         </activity>
 
         <!-- One task per Linux window, see WindowActivity -->
-        <!-- Home screen shortcuts of Linux applications (apps/Shortcuts.kt) -->
+        <activity
+            android:name=".overlay.OverlayEditorActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar" />
+
+        <!-- Loading screen of Linux applications, also for home screen shortcuts (apps/Shortcuts.kt) -->
         <activity
             android:name=".LaunchActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
             android:excludeFromRecents="true"
             android:exported="true"
-            android:noHistory="true"
             android:taskAffinity=""
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
             <intent-filter>

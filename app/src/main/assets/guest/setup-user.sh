@@ -19,6 +19,6 @@ if command -v flatpak >/dev/null; then
     # Defaults for every app: our compositor and sound server, and the whole
     # /dev (the GPU is /dev/kgsl-3d0 plus ION/dma-heap, not /dev/dri).
     flatpak override --user --socket=wayland --socket=pulseaudio --device=all \
-        --env=TU_DEBUG=noconform
+        --env=TU_DEBUG=noconform --env=PULSE_LATENCY_MSEC=150
 fi
 log "user setup done"

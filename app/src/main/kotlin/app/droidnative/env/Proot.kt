@@ -50,6 +50,10 @@ class Proot(private val paths: EnvPaths) {
         "XDG_SESSION_TYPE" to "wayland",
         // Session bus started by assets/guest/session.sh
         "DBUS_SESSION_BUS_ADDRESS" to "unix:path=${EnvPaths.GUEST_RUN_DIR}/bus",
+        // PulseAudio's pipe sink (AudioOutput.kt) reports its latency badly:
+        // programs that ask for small buffers (OpenAL, SDL) then underrun
+        // constantly. 150 ms measured gap-free with SuperTux 2.
+        "PULSE_LATENCY_MSEC" to "150",
     )
 
     private fun home(root: Boolean) = if (root) "/root" else EnvPaths.GUEST_HOME
@@ -111,11 +115,12 @@ class Proot(private val paths: EnvPaths) {
         extraEnv: Map<String, String> = emptyMap(),
         cwd: String? = null,
         root: Boolean = false,
+        extraBinds: List<Pair<String, String>> = emptyList(),
     ): ProcessBuilder {
         paths.ensureDirs()
         File(paths.filesDir, "shm").mkdirs()
         FakeSysdata.write(paths.sysdataDir)
-        val pb = ProcessBuilder(command(guestArgv, extraEnv, cwd, root = root))
+        val pb = ProcessBuilder(command(guestArgv, extraEnv, cwd, extraBinds, root))
         val env = pb.environment()
         env.clear()
         env["PROOT_LOADER"] = paths.prootLoader.path
@@ -137,8 +142,8 @@ class Proot(private val paths: EnvPaths) {
     }
 
     fun start(guestArgv: List<String>, extraEnv: Map<String, String> = emptyMap(),
-              root: Boolean = false): Process =
-        processBuilder(guestArgv, extraEnv, root = root).redirectErrorStream(true).start()
+              root: Boolean = false, extraBinds: List<Pair<String, String>> = emptyList()): Process =
+        processBuilder(guestArgv, extraEnv, root = root, extraBinds = extraBinds).redirectErrorStream(true).start()
 
     /**
      * Runs a guest command to completion and returns its combined output,
@@ -151,8 +156,9 @@ class Proot(private val paths: EnvPaths) {
         maxOutput: Int = 256 * 1024,
         onLine: ((String) -> Unit)? = null,
         root: Boolean = false,
+        extraBinds: List<Pair<String, String>> = emptyList(),
     ): Result {
-        val proc = start(guestArgv, extraEnv, root)
+        val proc = start(guestArgv, extraEnv, root, extraBinds)
         proc.outputStream.close()
         val out = StringBuilder()
         val reader = Thread {
@@ -173,6 +179,7 @@ class Proot(private val paths: EnvPaths) {
 
     /** Convenience: run a shell snippet in the guest. */
     fun sh(script: String, extraEnv: Map<String, String> = emptyMap(), timeoutMs: Long = 120_000,
-           onLine: ((String) -> Unit)? = null, root: Boolean = false): Result =
-        run(listOf("/bin/sh", "-c", script), extraEnv, timeoutMs, onLine = onLine, root = root)
+           onLine: ((String) -> Unit)? = null, root: Boolean = false,
+           extraBinds: List<Pair<String, String>> = emptyList()): Result =
+        run(listOf("/bin/sh", "-c", script), extraEnv, timeoutMs, onLine = onLine, root = root, extraBinds = extraBinds)
 }

@@ -46,6 +46,9 @@ struct dnc_callbacks {
     // A text field of the toplevel became active or inactive: show or hide
     // the on-screen keyboard. Repeated "active" means "show it again".
     void (*text_input)(void *data, uint32_t id, bool active);
+    // A program locked (captured) or released the pointer in this toplevel:
+    // the host should send relative motion (dnc_input_pointer_relative)
+    void (*pointer_lock)(void *data, uint32_t id, bool locked);
     void (*log)(void *data, enum dnc_log_level level, const char *msg);
 };
 
@@ -92,6 +95,9 @@ void dnc_window_resize(struct dnc_server *srv, uint32_t id, int32_t width,
                        int32_t height);
 void dnc_window_focus(struct dnc_server *srv, uint32_t id, bool focused);
 void dnc_toplevel_close(struct dnc_server *srv, uint32_t id);
+// Ends the client of the toplevel: disconnects a Wayland client, has the X
+// window manager kill an X client. For clients that ignored a close.
+void dnc_toplevel_kill(struct dnc_server *srv, uint32_t id);
 
 enum dnc_touch_action {
     DNC_TOUCH_DOWN, DNC_TOUCH_UP, DNC_TOUCH_MOTION, DNC_TOUCH_CANCEL,
@@ -108,6 +114,12 @@ void dnc_input_pointer_button(struct dnc_server *srv, uint32_t id,
                               uint32_t button, bool pressed, uint32_t time_ms);
 void dnc_input_pointer_axis(struct dnc_server *srv, uint32_t id,
                             float dx, float dy, uint32_t time_ms);
+// Pointer movement while a program has locked the pointer; window pixels
+void dnc_input_pointer_relative(struct dnc_server *srv, uint32_t id,
+                                float dx, float dy, uint32_t time_ms);
+// Wheel notches, positive = down/right (like a mouse wheel)
+void dnc_input_pointer_wheel(struct dnc_server *srv, uint32_t id,
+                             int32_t steps_x, int32_t steps_y, uint32_t time_ms);
 // key is a Linux evdev code; mods are xkb modifier masks of the us keymap
 void dnc_input_key(struct dnc_server *srv, uint32_t id, uint32_t key,
                    bool pressed, uint32_t mods_depressed,
@@ -118,6 +130,9 @@ void dnc_input_key(struct dnc_server *srv, uint32_t id, uint32_t key,
 // Ignored when the client has no active text field.
 void dnc_input_text_commit(struct dnc_server *srv, uint32_t id, const char *text);
 void dnc_input_text_preedit(struct dnc_server *srv, uint32_t id, const char *text);
+
+// Replaces the xkb keymap (text file at path) for all clients.
+void dnc_set_keymap(struct dnc_server *srv, const char *path);
 
 bool dnc_get_stats(struct dnc_server *srv, uint32_t id, struct dnc_stats *out);
 

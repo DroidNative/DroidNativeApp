@@ -2,6 +2,10 @@
 .kotlin/
 build/
 local.properties
+# Release signing (app/build.gradle.kts)
+keystore.properties
+*.jks
+*.keystore
 .idea/
 *.iml
 .cache/

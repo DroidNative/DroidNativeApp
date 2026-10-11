@@ -1,8 +1,8 @@
 # Template file for 'droidnative-tools'
 # Guest-side helpers and test clients of DroidNative.
 pkgname=droidnative-tools
-version=0.1.5
-revision=3
+version=0.1.6
+revision=1
 hostmakedepends="pkg-config wayland-devel"
 makedepends="wayland-devel wayland-protocols libxcb-devel"
 short_desc="DroidNative guest helpers and test clients"
@@ -19,12 +19,15 @@ do_fetch() {
 do_build() {
 	local proto="${XBPS_CROSS_BASE}/usr/share/wayland-protocols"
 	local p
-	for p in stable/xdg-shell/xdg-shell unstable/linux-dmabuf/linux-dmabuf-unstable-v1; do
+	for p in stable/xdg-shell/xdg-shell unstable/linux-dmabuf/linux-dmabuf-unstable-v1 \
+		unstable/pointer-constraints/pointer-constraints-unstable-v1 \
+		unstable/relative-pointer/relative-pointer-unstable-v1; do
 		wayland-scanner client-header "${proto}/${p}.xml" "$(basename "$p")-client-protocol.h"
 		wayland-scanner private-code "${proto}/${p}.xml" "$(basename "$p")-protocol.c"
 	done
 	${CC} ${CFLAGS} ${LDFLAGS} -std=gnu99 -I. -o dn-wltest dn-wltest.c \
 		xdg-shell-protocol.c linux-dmabuf-unstable-v1-protocol.c \
+		pointer-constraints-unstable-v1-protocol.c relative-pointer-unstable-v1-protocol.c \
 		$(pkg-config --cflags --libs wayland-client)
 	${CC} ${CFLAGS} ${LDFLAGS} -std=gnu99 -shared -fPIC -o libdn-appenv.so dn-appenv.c -ldl
 	wayland-scanner client-header dn-xwm-v1.xml dn-xwm-v1-client-protocol.h

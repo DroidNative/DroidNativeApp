@@ -1,6 +1,8 @@
 package app.droidnative.ui
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -12,7 +14,7 @@ import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,6 +23,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -46,12 +49,47 @@ fun <T> Choice(
     var open by remember { mutableStateOf(false) }
     ExposedDropdownMenuBox(open, { if (enabled) open = it }, modifier) {
         OutlinedTextField(text(value), {}, Modifier.fillMaxWidth()
-                .menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled),
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled),
             readOnly = true, enabled = enabled, singleLine = true,
             label = { Text(label) },
             trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(open) })
         ExposedDropdownMenu(open, { open = false }) {
             for (o in options) DropdownMenuItem({ Text(text(o)) }, { onChange(o); open = false })
+        }
+    }
+}
+
+/**
+ * Dropdown over a long list: typing into the field filters [options] by
+ * [search] (default: the shown text), case-insensitively, by every word.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun <T> SearchChoice(
+    label: String,
+    value: T,
+    options: List<T>,
+    text: (T) -> String,
+    onChange: (T) -> Unit,
+    modifier: Modifier = Modifier,
+    search: (T) -> String = text,
+) {
+    var open by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
+    val focus = LocalFocusManager.current
+    val words = query.lowercase().split(' ').filter { it.isNotEmpty() }
+    val shown = options.filter { o -> search(o).lowercase().let { s -> words.all { it in s } } }
+    fun close() { open = false; query = ""; focus.clearFocus() }
+    ExposedDropdownMenuBox(open, { if (it) open = true else close() }, modifier) {
+        OutlinedTextField(if (open) query else text(value), { query = it; open = true },
+            Modifier.fillMaxWidth().menuAnchor(ExposedDropdownMenuAnchorType.PrimaryEditable),
+            singleLine = true,
+            label = { Text(label) },
+            placeholder = { Text(stringResource(R.string.search_hint, text(value))) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(open) })
+        ExposedDropdownMenu(open, { close() }) {
+            if (shown.isEmpty()) DropdownMenuItem({ Text(stringResource(R.string.search_no_match)) }, {}, enabled = false)
+            for (o in shown) DropdownMenuItem({ Text(text(o)) }, { onChange(o); close() })
         }
     }
 }
@@ -82,7 +120,9 @@ fun ResolutionField(value: String?, shortSide: Int, longSide: Int, emptyLabel: S
                 Text(if (factor != null) stringResource(R.string.resolution_hint)
                      else stringResource(R.string.resolution_invalid, Resolution.MIN_PIXELS, shortSide))
             })
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        // Scrolls instead of squeezing the chips in narrow dialogs
+        Row(Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             for (preset in listOf("", "75%", "50%", "720", "480")) {
                 if (preset.isNotEmpty() && !Resolution.isValid(preset, shortSide)) continue
                 FilterChip(text == preset, {

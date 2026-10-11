@@ -22,7 +22,8 @@ file(MAKE_DIRECTORY ${GEN})
 set(GEN_SERVER "")
 set(GEN_CLIENT "")
 foreach(p xdg-shell linux-dmabuf-unstable-v1 xdg-decoration-unstable-v1
-          text-input-unstable-v3 xwayland-shell-v1)
+          text-input-unstable-v3 xwayland-shell-v1
+          pointer-constraints-unstable-v1 relative-pointer-unstable-v1)
     add_custom_command(
         OUTPUT ${GEN}/${p}-server-protocol.h ${GEN}/${p}-client-protocol.h ${GEN}/${p}-protocol.c
         COMMAND ${WAYLAND_SCANNER} server-header ${PROTO}/${p}.xml ${GEN}/${p}-server-protocol.h
@@ -54,6 +55,7 @@ add_executable(dnc-headless
     ${CPP}/compositor/decoration.c
     ${CPP}/compositor/text_input.c
     ${CPP}/compositor/xwayland.c
+    ${CPP}/compositor/constraints.c
     ${CPP}/compositor/render_null.c
     ${GEN_SERVER})
 target_include_directories(dnc-headless PRIVATE ${CPP}/compositor ${GEN} ${WL_INCLUDE_DIRS})

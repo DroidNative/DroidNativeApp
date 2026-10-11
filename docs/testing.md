@@ -111,6 +111,10 @@ stream them into the app's private repo dir:
 `adb exec-in run-as app.droidnative sh -c 'cat > files/repo/debug/x.xbps' < x.xbps`
 (appears as `/opt/droidnative/repo/debug/` in the guest).
 
+`dn-wltest --lock` (package `droidnative-tools`) locks the pointer and
+prints at exit whether the lock was granted and how much relative and
+absolute motion arrived; use it to check pointer capture in a window.
+
 ## OpenGL backends
 
 `dn-gl <auto|zink|gl4es|llvmpipe> <command>` (package `droidnative-tools`)

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
@@ -36,6 +37,7 @@ import app.droidnative.apps.MouseMode
 import app.droidnative.apps.Rotation
 import app.droidnative.apps.WindowSettings
 import app.droidnative.env.Prefs
+import app.droidnative.overlay.OverlayStore
 
 /**
  * Per-app settings of one application (long-press menu). Window settings
@@ -73,15 +75,22 @@ fun AppSettingsDialog(entry: DesktopEntry, onDismiss: () -> Unit) {
                     { s = s.copy(mouseMode = it) })
                 Choice(stringResource(R.string.rotation), s.rotation, listOf<Rotation?>(null) + Rotation.entries.drop(1),
                     { if (it == null) rotationLabel(null) else rotationLabel(it) }, { s = s.copy(rotation = it) })
-                // Placeholder until on-screen buttons exist
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().toggleable(s.autoKeyboard, role = Role.Switch) {
+                        s = s.copy(autoKeyboard = it)
+                    }, verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(stringResource(R.string.button_overlays))
-                        Text(stringResource(R.string.coming_later), style = MaterialTheme.typography.bodySmall,
+                        Text(stringResource(R.string.auto_keyboard))
+                        Text(stringResource(R.string.auto_keyboard_summary), style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Switch(false, null, enabled = false)
+                    Switch(s.autoKeyboard, null)
                 }
+                val layouts = remember { OverlayStore(context).list() }
+                Choice(stringResource(R.string.button_overlays), s.overlay,
+                    listOf<String?>(null) + layouts.map { it.id },
+                    { id -> if (id == null) stringResource(R.string.overlay_none)
+                            else layouts.firstOrNull { it.id == id }?.name ?: stringResource(R.string.overlay_none) },
+                    { s = s.copy(overlay = it) })
                 Text(stringResource(R.string.children_title), style = MaterialTheme.typography.titleSmall)
                 for (p in ChildPolicy.entries) {
                     Row(Modifier.fillMaxWidth().selectable(s.children == p, role = Role.RadioButton) {

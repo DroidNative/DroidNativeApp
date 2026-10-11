@@ -1,6 +1,8 @@
 package app.droidnative.ui
 
 import android.Manifest
+import android.annotation.SuppressLint
+import android.os.PowerManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -48,6 +50,8 @@ import app.droidnative.R
 import app.droidnative.apps.MouseMode
 import app.droidnative.apps.WindowSettings
 import app.droidnative.env.Passthrough
+import app.droidnative.env.ThemeMode
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.droidnative.env.Prefs
 import app.droidnative.env.StorageMounts
 
@@ -66,6 +70,14 @@ fun SettingsScreen() {
         SectionTitle(R.string.settings_devices)
         Hint(R.string.settings_devices_hint)
         for (p in Passthrough.entries) PassthroughRow(p, resumed)
+
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        SectionTitle(R.string.settings_startup)
+        StartupSetting(resumed)
+
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        SectionTitle(R.string.settings_appearance)
+        AppearanceSetting()
 
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         SectionTitle(R.string.settings_display)
@@ -185,6 +197,52 @@ private fun StorageRow(resumed: Int) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+    }
+}
+
+@Composable
+private fun StartupSetting(resumed: Int) {
+    val context = LocalContext.current
+    val prefs = remember { Prefs(context) }
+    var enabled by remember { mutableStateOf(prefs.startOnBoot) }
+    val pm = context.getSystemService(PowerManager::class.java)
+    // Re-read after returning from the system dialog
+    val unrestricted = remember(resumed) { pm.isIgnoringBatteryOptimizations(context.packageName) }
+    SwitchRow(stringResource(R.string.start_on_boot), stringResource(R.string.start_on_boot_summary), enabled) {
+        enabled = it
+        prefs.startOnBoot = it
+    }
+    if (enabled && !unrestricted) {
+        Column(Modifier.padding(horizontal = 16.dp)) {
+            Text(stringResource(R.string.battery_hint), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton({
+                @SuppressLint("BatteryLife")   // keeping the environment alive is the app's purpose
+                val i = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                    Uri.fromParts("package", context.packageName, null))
+                try {
+                    context.startActivity(i)
+                } catch (e: ActivityNotFoundException) {
+                    context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                }
+            }) { Text(stringResource(R.string.battery_allow)) }
+        }
+    }
+    Hint(R.string.services_hint)
+}
+
+@Composable
+private fun AppearanceSetting() {
+    val context = LocalContext.current
+    val mode by AppTheme.mode(context).collectAsStateWithLifecycle()
+    Column(FormPadding) {
+        Choice(stringResource(R.string.theme), mode ?: ThemeMode.SYSTEM, ThemeMode.entries.toList(), {
+                stringResource(when (it) {
+                    ThemeMode.SYSTEM -> R.string.theme_system
+                    ThemeMode.LIGHT -> R.string.theme_light
+                    ThemeMode.DARK -> R.string.theme_dark
+                })
+            }, { AppTheme.set(context, it) })
     }
 }
 

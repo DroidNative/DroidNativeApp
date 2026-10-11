@@ -60,6 +60,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import app.droidnative.LaunchActivity
 import app.droidnative.R
 import app.droidnative.env.EnvController
 import app.droidnative.env.EnvController.State
@@ -109,7 +110,7 @@ fun OverviewScreen() {
     settingsFor?.let { AppSettingsDialog(it) { settingsFor = null } }
     sheet?.let { item -> AppSheet(item, onDismiss = { sheet = null }, onOpen = {
         sheet = null
-        launch(context, apps, item.entry)
+        LaunchActivity.start(context, item.entry)
     }, onSettings = {
         sheet = null
         settingsFor = item.entry
@@ -148,7 +149,7 @@ fun OverviewScreen() {
                     }
                 }
                 if (open) items(group, key = { it.entry.id }) { item ->
-                    AppRow(item, onLongClick = { sheet = item }) { launch(context, apps, item.entry) }
+                    AppRow(item, onLongClick = { sheet = item }) { LaunchActivity.start(context, item.entry) }
                 }
             }
         }
@@ -170,14 +171,6 @@ private fun CategoryHeader(label: String, count: Int, open: Boolean, onClick: ()
 
 private class AppItem(val entry: DesktopEntry, val icon: ImageBitmap?)
 
-private fun launch(context: Context, apps: LinuxApps, entry: DesktopEntry) {
-    try {
-        apps.launch(entry)
-    } catch (e: Exception) {
-        Toast.makeText(context, context.getString(R.string.apps_start_failed, entry.name),
-            Toast.LENGTH_LONG).show()
-    }
-}
 
 /** Long-press menu: "Add to home screen" first, then per-app settings and "Open". */
 @OptIn(ExperimentalMaterial3Api::class)

@@ -14,7 +14,7 @@ struct jni_ctx {
     struct dnc_server *srv;
     jobject owner;              // global ref to the Kotlin Compositor
     JNIEnv *env;                // valid on the compositor thread during run
-    jmethodID on_new, on_changed, on_closed, on_text_input;
+    jmethodID on_new, on_changed, on_closed, on_text_input, on_pointer_lock;
 };
 
 /* Callbacks (compositor thread) */
@@ -80,6 +80,19 @@ static void on_text_input(void *data, uint32_t id, bool active)
     }
 }
 
+static void on_pointer_lock(void *data, uint32_t id, bool locked)
+{
+    struct jni_ctx *ctx = data;
+    JNIEnv *env = ctx->env;
+    if (!env)
+        return;
+    (*env)->CallVoidMethod(env, ctx->owner, ctx->on_pointer_lock, (jint)id, (jboolean)locked);
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionDescribe(env);
+        (*env)->ExceptionClear(env);
+    }
+}
+
 static void on_log(void *data, enum dnc_log_level level, const char *msg)
 {
     (void)data;
@@ -105,6 +118,7 @@ JNIEXPORT jlong JNICALL JFN(nativeCreate)(JNIEnv *env, jobject self,
     ctx->on_changed = (*env)->GetMethodID(env, cls, "onToplevelChanged", "(ILjava/lang/String;Ljava/lang/String;)V");
     ctx->on_closed = (*env)->GetMethodID(env, cls, "onToplevelClosed", "(I)V");
     ctx->on_text_input = (*env)->GetMethodID(env, cls, "onTextInput", "(IZ)V");
+    ctx->on_pointer_lock = (*env)->GetMethodID(env, cls, "onPointerLock", "(IZ)V");
     if (!ctx->on_new || !ctx->on_changed || !ctx->on_closed) {
         free(ctx);
         return 0;
@@ -131,6 +145,7 @@ JNIEXPORT jlong JNICALL JFN(nativeCreate)(JNIEnv *env, jobject self,
         .toplevel_changed = on_changed,
         .toplevel_closed = on_closed,
         .text_input = on_text_input,
+        .pointer_lock = on_pointer_lock,
         .log = on_log,
     };
     // The renderer needs EGL on the compositor thread; create() runs on the
@@ -213,6 +228,22 @@ JNIEXPORT void JNICALL JFN(nativeClose)(JNIEnv *env, jobject self, jlong h, jint
     dnc_toplevel_close(SRV(h), (uint32_t)id);
 }
 
+JNIEXPORT void JNICALL JFN(nativeSetKeymap)(JNIEnv *env, jobject self, jlong h, jstring path)
+{
+    (void)self;
+    const char *p = (*env)->GetStringUTFChars(env, path, NULL);
+    if (!p)
+        return;
+    dnc_set_keymap(SRV(h), p);
+    (*env)->ReleaseStringUTFChars(env, path, p);
+}
+
+JNIEXPORT void JNICALL JFN(nativeKill)(JNIEnv *env, jobject self, jlong h, jint id)
+{
+    (void)env; (void)self;
+    dnc_toplevel_kill(SRV(h), (uint32_t)id);
+}
+
 JNIEXPORT void JNICALL JFN(nativeTouch)(JNIEnv *env, jobject self, jlong h,
     jint id, jint action, jint slot, jfloat x, jfloat y, jint time)
 {
@@ -241,6 +272,20 @@ JNIEXPORT void JNICALL JFN(nativePointerAxis)(JNIEnv *env, jobject self,
 {
     (void)env; (void)self;
     dnc_input_pointer_axis(SRV(h), (uint32_t)id, dx, dy, (uint32_t)time);
+}
+
+JNIEXPORT void JNICALL JFN(nativePointerRelative)(JNIEnv *env, jobject self,
+    jlong h, jint id, jfloat dx, jfloat dy, jint time)
+{
+    (void)env; (void)self;
+    dnc_input_pointer_relative(SRV(h), (uint32_t)id, dx, dy, (uint32_t)time);
+}
+
+JNIEXPORT void JNICALL JFN(nativePointerWheel)(JNIEnv *env, jobject self,
+    jlong h, jint id, jint steps_x, jint steps_y, jint time)
+{
+    (void)env; (void)self;
+    dnc_input_pointer_wheel(SRV(h), (uint32_t)id, steps_x, steps_y, (uint32_t)time);
 }
 
 JNIEXPORT void JNICALL JFN(nativeKey)(JNIEnv *env, jobject self, jlong h,

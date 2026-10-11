@@ -50,6 +50,15 @@ for p in $PKGS; do
     xbps-install -y "$p"
 done
 
+# runit services (env/Services.kt runs runsvdir on /var/service). Void's
+# default service dir holds gettys and udevd, which make no sense here:
+# DroidNative uses its own, enabled the usual way with
+# "ln -s /etc/sv/<name> /var/service/". /var/service points through /run,
+# which a normal boot fills in.
+mkdir -p /etc/runit/runsvdir/droidnative /run/runit/runsvdir
+ln -sfn droidnative /etc/runit/runsvdir/current
+ln -sfn /etc/runit/runsvdir/current /run/runit/runsvdir/current
+
 # ALSA programs (Audacity through PortAudio) play through PulseAudio
 if [ ! -e /etc/asound.conf ]; then
     printf 'pcm.!default pulse\nctl.!default pulse\n' > /etc/asound.conf

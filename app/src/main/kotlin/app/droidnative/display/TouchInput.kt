@@ -12,11 +12,15 @@ import kotlin.math.hypot
  * Touchscreen input for one window in the chosen [MouseMode]. Coordinates
  * are view pixels; [scale] converts them to buffer pixels for the compositor.
  *
- * MOUSE: the finger is the pointer. Tap = left click, drag = left drag,
- *   long press = right click, two fingers = scroll.
- * TOUCHPAD: relative movement of a drawn [cursor]. Tap = left click,
- *   two-finger tap = right click, tap then hold and move = drag,
- *   two fingers = scroll.
+ * MOUSE (emulated mouse clicks): the finger is the pointer. Tap = left
+ *   click, drag = left drag, long press = right click.
+ * TOUCHPAD: relative movement of a drawn [cursor]. Tap = left click (sent
+ *   after a short wait), tap then touch again and move = held left button,
+ *   two-finger tap = right click, three-finger tap = middle click.
+ * Both: two fingers moving = mouse wheel (content follows the fingers).
+ * While a program has locked the pointer ([locked], games and 3D views),
+ * movement is sent as relative motion only and the touchpad cursor is
+ * hidden; clicks stay where the pointer is.
  */
 class TouchInput(
     private val compositor: Compositor,
@@ -28,8 +32,10 @@ class TouchInput(
 ) {
     private val slop = ViewConfiguration.get(view.context).scaledTouchSlop.toFloat()
     private val longPress = ViewConfiguration.getLongPressTimeout().toLong()
+    // Finger travel per wheel notch
+    private val notch = WHEEL_NOTCH_DP * view.resources.displayMetrics.density
 
-    // Shared state of the gesture in progress
+    // Gesture in progress
     private var downX = 0f
     private var downY = 0f
     private var downTime = 0L
@@ -38,18 +44,36 @@ class TouchInput(
     private var moved = false
     private var leftDown = false
     private var consumed = false          // long press already handled
-    private var scrolling = false
+    private var multi = false             // more than one finger was down
     private var maxPointers = 0
+    private var wheelX = 0f               // finger travel not yet sent as notches
+    private var wheelY = 0f
 
-    // Touchpad cursor and tap-drag
+    // Touchpad cursor and tap handling
     private var cx = -1f
     private var cy = -1f
-    private var lastTapUp = 0L
+    private var tapPending = false        // a tap waits: click, or the start of a drag
+    private var dragging = false          // tap-drag holds the left button
+
+    /** A program has captured the pointer: relative motion only. */
+    var locked = false
+        set(value) {
+            field = value
+            cursor?.visibility = if (value || cx < 0) View.GONE else View.VISIBLE
+        }
 
     private val longPressAction = Runnable {
-        if (mode == MouseMode.MOUSE && !moved && !scrolling && !leftDown) {
+        if (mode == MouseMode.MOUSE && !moved && !multi && !leftDown) {
             consumed = true
             click(BTN_RIGHT)
+        }
+    }
+
+    // No second touch followed the tap: it was a click
+    private val tapClick = Runnable {
+        if (tapPending) {
+            tapPending = false
+            click(BTN_LEFT)
         }
     }
 
@@ -60,38 +84,49 @@ class TouchInput(
             MotionEvent.ACTION_DOWN -> {
                 downX = e.x; downY = e.y; lastX = e.x; lastY = e.y
                 downTime = e.eventTime
-                moved = false; consumed = false; scrolling = false; maxPointers = 1
+                moved = false; consumed = false; multi = false; maxPointers = 1
+                wheelX = 0f; wheelY = 0f
                 if (mode == MouseMode.MOUSE) {
-                    motion(e.x, e.y, t)
+                    if (!locked) motion(e.x, e.y, t)
                     view.postDelayed(longPressAction, longPress)
                 } else {
                     ensureCursor()
-                    // Second touch right after a tap: drag
-                    if (e.eventTime - lastTapUp < DOUBLE_TAP_MS) press(true, t)
+                    if (tapPending) {
+                        // Touch again right after a tap: hold the button
+                        view.removeCallbacks(tapClick)
+                        tapPending = false
+                        dragging = true
+                        press(true, t)
+                    }
                 }
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
                 maxPointers = maxOf(maxPointers, e.pointerCount)
+                multi = true
                 view.removeCallbacks(longPressAction)
                 if (leftDown) press(false, t)
-                scrolling = true
+                dragging = false
                 lastX = avgX(e); lastY = avgY(e)
             }
             MotionEvent.ACTION_MOVE -> {
-                if (scrolling) {
+                if (multi) {
                     val x = avgX(e); val y = avgY(e)
-                    // Content follows the fingers, as on a touchscreen
-                    compositor.pointerAxis(id, (lastX - x) * scale(), (lastY - y) * scale(), t)
                     if (hypot(x - downX, y - downY) > slop) moved = true
+                    if (e.pointerCount == 2) wheel(lastX - x, lastY - y, t)
                     lastX = x; lastY = y
                     return true
                 }
                 if (!moved && hypot(e.x - downX, e.y - downY) > slop) {
                     moved = true
                     view.removeCallbacks(longPressAction)
-                    if (mode == MouseMode.MOUSE && !consumed) press(true, t)   // start the drag where it began
+                    if (mode == MouseMode.MOUSE && !consumed) press(true, t)   // drag from where it began
                 }
-                if (mode == MouseMode.MOUSE) {
+                if (locked) {
+                    if (moved && !consumed) {
+                        val speed = if (mode == MouseMode.TOUCHPAD) POINTER_SPEED else 1f
+                        compositor.pointerRelative(id, (e.x - lastX) * speed * scale(), (e.y - lastY) * speed * scale(), t)
+                    }
+                } else if (mode == MouseMode.MOUSE) {
                     if (moved && !consumed) motion(e.x, e.y, t)
                 } else if (moved) {
                     moveCursor((e.x - lastX) * POINTER_SPEED, (e.y - lastY) * POINTER_SPEED, t)
@@ -99,27 +134,32 @@ class TouchInput(
                 lastX = e.x; lastY = e.y
             }
             MotionEvent.ACTION_POINTER_UP -> {
-                // Remaining finger continues the scroll from its position
+                // The remaining fingers continue the gesture from where they are
                 val rest = (0 until e.pointerCount).filter { it != e.actionIndex }
                 lastX = rest.map { e.getX(it) }.average().toFloat()
                 lastY = rest.map { e.getY(it) }.average().toFloat()
             }
             MotionEvent.ACTION_UP -> {
                 view.removeCallbacks(longPressAction)
-                val quick = e.eventTime - downTime < TAP_MS
+                val tap = !moved && e.eventTime - downTime < TAP_MS
                 when {
-                    leftDown -> press(false, t)
+                    dragging || leftDown -> { press(false, t); dragging = false }
                     consumed -> {}
-                    scrolling -> if (!moved && quick && maxPointers == 2) click(BTN_RIGHT)
-                    !moved && mode == MouseMode.MOUSE -> click(BTN_LEFT)
-                    !moved && quick -> { click(BTN_LEFT); lastTapUp = e.eventTime }
+                    multi -> if (tap) when (maxPointers) {
+                        2 -> click(BTN_RIGHT)
+                        3 -> click(BTN_MIDDLE)
+                    }
+                    mode == MouseMode.MOUSE -> if (!moved) click(BTN_LEFT)
+                    tap -> {
+                        tapPending = true
+                        view.postDelayed(tapClick, DOUBLE_TAP_MS)
+                    }
                 }
-                scrolling = false
             }
             MotionEvent.ACTION_CANCEL -> {
                 view.removeCallbacks(longPressAction)
                 if (leftDown) press(false, t)
-                scrolling = false
+                dragging = false
             }
         }
         return true
@@ -152,11 +192,25 @@ class TouchInput(
         return true
     }
 
+    // Finger travel into wheel notches; dx/dy positive scroll right/down
+    private fun wheel(dx: Float, dy: Float, t: Int) {
+        wheelX += dx
+        wheelY += dy
+        val sx = (wheelX / notch).toInt()
+        val sy = (wheelY / notch).toInt()
+        if (sx == 0 && sy == 0) return
+        wheelX -= sx * notch
+        wheelY -= sy * notch
+        // One axis at a time: diagonal jitter would scroll sideways too
+        if (abs(sy) >= abs(sx)) compositor.pointerWheel(id, 0, sy, t)
+        else compositor.pointerWheel(id, sx, 0, t)
+    }
+
     private fun ensureCursor() {
         if (cx >= 0) return
         cx = view.width / 2f
         cy = view.height / 2f
-        cursor?.visibility = View.VISIBLE
+        if (!locked) cursor?.visibility = View.VISIBLE
         placeCursor()
         motion(cx, cy, now())
     }
@@ -187,7 +241,7 @@ class TouchInput(
 
     private fun click(button: Int) {
         val t = now()
-        if (mode == MouseMode.TOUCHPAD) motion(cx, cy, t)
+        if (mode == MouseMode.TOUCHPAD && !locked) motion(cx, cy, t)
         compositor.pointerButton(id, button, true, t)
         compositor.pointerButton(id, button, false, t + 1)
     }
@@ -199,8 +253,10 @@ class TouchInput(
     companion object {
         private const val BTN_LEFT = 0x110
         private const val BTN_RIGHT = 0x111
+        private const val BTN_MIDDLE = 0x112
         private const val TAP_MS = 250L
-        private const val DOUBLE_TAP_MS = 300L
+        private const val DOUBLE_TAP_MS = 250L
         private const val POINTER_SPEED = 1.5f
+        private const val WHEEL_NOTCH_DP = 24f
     }
 }

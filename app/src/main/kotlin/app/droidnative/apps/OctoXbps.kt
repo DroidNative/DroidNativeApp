@@ -1,6 +1,7 @@
 package app.droidnative.apps
 
 import android.content.Context
+import app.droidnative.LaunchActivity
 import app.droidnative.env.EnvPaths
 import java.io.File
 
@@ -52,14 +53,18 @@ object OctoXbps {
         conf.writeText(out.joinToString("\n") + "\n")
     }
 
-    /** Starts OctoXBPS in portrait unless the user chose another rotation. */
+    /**
+     * Starts OctoXBPS in portrait (unless the user chose another rotation),
+     * always with emulated mouse clicks: its lists and buttons expect a mouse.
+     */
     fun start(context: Context): Boolean {
         val apps = LinuxApps(context)
         val entry = apps.find(DESKTOP_ID) ?: return false
         val store = AppSettingsStore(context)
         store.putDefault(DESKTOP_ID, AppSettings(rotation = Rotation.PORTRAIT))
+        store.put(DESKTOP_ID, store.get(DESKTOP_ID).copy(mouseMode = MouseMode.MOUSE))
         applyPreset(context)
-        apps.launch(entry)
+        LaunchActivity.start(context, entry)
         return true
     }
 }

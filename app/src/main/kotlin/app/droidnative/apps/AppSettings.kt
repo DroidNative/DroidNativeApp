@@ -38,6 +38,10 @@ data class AppSettings(
     val dpi: Int? = null,
     val mouseMode: MouseMode? = null,
     val rotation: Rotation? = null,
+    /** Open the on-screen keyboard when a text field becomes active. */
+    val autoKeyboard: Boolean = true,
+    /** Button layout shown over the app's windows (overlay/OverlayStore), null for none. */
+    val overlay: String? = null,
     val children: ChildPolicy = ChildPolicy.ALL,
 ) {
     val isDefault get() = this == AppSettings()
@@ -48,6 +52,8 @@ data class AppSettings(
         dpi?.let { put("dpi", it) }
         mouseMode?.let { put("mouse", it.name) }
         rotation?.let { put("rotation", it.name) }
+        if (!autoKeyboard) put("autoKeyboard", false)
+        overlay?.let { put("overlay", it) }
         put("children", children.name)
     }.toString()
 
@@ -64,6 +70,8 @@ data class AppSettings(
                 dpi = o.optInt("dpi", 0).takeIf { it > 0 },
                 mouseMode = o.enum<MouseMode>("mouse"),
                 rotation = o.enum<Rotation>("rotation"),
+                autoKeyboard = o.optBoolean("autoKeyboard", true),
+                overlay = o.optString("overlay", "").takeIf { it.isNotEmpty() },
                 children = o.enum<ChildPolicy>("children") ?: ChildPolicy.ALL,
             )
         } catch (_: Exception) {

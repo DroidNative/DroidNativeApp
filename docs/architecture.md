@@ -68,6 +68,38 @@ or a popup (menus) through `dn_xwm_v1`. Xwayland listens only on the socket
 file in the guest's `/tmp`, not on an abstract socket (those are shared
 with every Android app).
 
+Closing: swiping a window away in Android's recent apps asks the
+application to close it (`xdg_toplevel.close`, `WM_DELETE_WINDOW`). If the
+process still has windows 3 seconds later and none of them is on screen
+(apps often answer a close with a dialog or a restored session, which
+Android does not let them show from the background), it is ended: the
+Wayland client is disconnected, the X client killed through dn-xwm
+(`Compositor.closeFromHost`). Back moves a window to the background
+without closing it. A window opened while DroidNative is in the background
+appears as a notification; tapping it shows the window.
+
+Hardware keyboards send their scancodes unchanged. Android has no public
+API for the name of the chosen keyboard layout, so `display/HardwareKeyboard.kt`
+generates an xkb layout from the keyboard's character map (what each
+physical key types plain, with Shift, AltGr and both, dead keys included;
+`InputDevice.getKeyCodeForKeyLocation`, Android 13+), compiles it in the
+guest with `xkbcli` and gives it to the compositor, which sends the new
+keymap to every client. Right Alt then selects level 3 (AltGr). Without a
+hardware keyboard the default US keymap stays. Mouse wheels send discrete
+notches (X11 programs need them), side buttons arrive as BTN_SIDE and
+BTN_EXTRA.
+
+Pointer capture: the compositor implements pointer-constraints and
+relative-pointer (`compositor/constraints.c`), which SDL games and
+Xwayland (X11 pointer grabs) use. A lock is active while its window has
+focus; absolute motion is then ignored and only relative motion is sent.
+Android hears about it (`onPointerLock`): the emulated touchpad hides its
+cursor and sends finger movement as relative motion, emulated mouse
+clicks turn drags into relative motion, and a real mouse is captured with
+Android's pointer capture so it delivers raw movement.
+
+On-screen buttons: [on-screen-buttons.md](on-screen-buttons.md).
+
 Input: touch is turned into touch events, mouse clicks or a touchpad with
 a drawn cursor (`display/TouchInput.kt`); keys and the on-screen keyboard
 go through wl_keyboard and text-input. Windows map back to the
@@ -91,8 +123,26 @@ makes the Wayland WSI wait for each frame on the CPU before presenting.
 
 ## Sound, session and storage
 
+Services: `env/Services.kt` runs runit's `runsvdir` on `/var/service` as
+emulated root while the environment runs. Void's default service directory
+(gettys, udevd) does not fit, so setup.sh points `/var/service` at the
+empty `/etc/runit/runsvdir/droidnative`; services are enabled the usual way
+(`ln -s /etc/sv/NAME /var/service/`). With "Start with the phone" the
+`BootReceiver` starts the environment, and with it the services, after
+boot.
+
+Light and dark: `apps/GuestTheme.kt` passes DroidNative's colour scheme to
+programs it starts: `gtk-application-prefer-dark-theme` in GTK's
+settings.ini, `ADW_DEBUG_COLOR_SCHEME` for libadwaita (no settings portal
+runs here).
+
 PulseAudio runs in the guest with a pipe sink; the app reads the PCM from
-the FIFO and plays it through `AudioTrack` (`env/AudioOutput.kt`). The
+the FIFO and plays it through `AudioTrack` (`env/AudioOutput.kt`, at
+Android's audio thread priority so busy guests cannot starve it). The pipe
+sink reports its latency poorly, and programs asking for small buffers
+(OpenAL Soft, SDL) then underrun many times a second; every guest program
+therefore gets `PULSE_LATENCY_MSEC=150`, measured gap-free with SuperTux 2
+on GPU and software rendering. The
 microphone works the other way round (`devices/MicBridge.kt`). A D-Bus
 session bus runs alongside (`assets/guest/session.sh`).
 

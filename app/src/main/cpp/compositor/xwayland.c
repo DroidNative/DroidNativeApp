@@ -197,6 +197,13 @@ void dnc_xwayland_close(struct dnc_toplevel *tl)
         dn_xwm_v1_send_close(tl->server->xwm, win->window);
 }
 
+void dnc_xwayland_kill(struct dnc_toplevel *tl)
+{
+    struct dnc_xwl_window *win = tl->xdg ? tl->xdg->x11 : NULL;
+    if (win && tl->server->xwm)
+        dn_xwm_v1_send_kill(tl->server->xwm, win->window);
+}
+
 /* dn_xwm_v1 */
 
 static struct dnc_xwl_window *new_window(struct dnc_server *srv, uint32_t id,

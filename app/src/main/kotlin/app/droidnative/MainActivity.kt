@@ -1,5 +1,7 @@
 package app.droidnative
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -28,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import app.droidnative.ui.ButtonsScreen
 import app.droidnative.ui.DroidNativeTheme
 import app.droidnative.ui.InstallScreen
 import app.droidnative.ui.OverviewScreen
@@ -38,6 +41,10 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Window notifications (EnvService) and the service notice need it
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
         setContent { DroidNativeTheme { MainScreen() } }
     }
 }
@@ -45,6 +52,7 @@ class MainActivity : ComponentActivity() {
 private enum class Tab(val label: Int, val icon: Int) {
     OVERVIEW(R.string.tab_overview, R.drawable.ic_tab_overview),
     INSTALL(R.string.tab_install, R.drawable.ic_tab_install),
+    BUTTONS(R.string.tab_buttons, R.drawable.ic_tab_buttons),
     SETTINGS(R.string.tab_settings, R.drawable.ic_tab_settings),
 }
 
@@ -69,6 +77,7 @@ private fun MainScreen() {
             when (Tab.entries[selected]) {
                 Tab.OVERVIEW -> OverviewScreen()
                 Tab.INSTALL -> InstallScreen()
+                Tab.BUTTONS -> ButtonsScreen()
                 Tab.SETTINGS -> SettingsScreen()
             }
         }

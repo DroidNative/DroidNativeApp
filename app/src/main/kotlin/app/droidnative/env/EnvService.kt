@@ -3,7 +3,10 @@ package app.droidnative.env
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
+import android.os.Handler
+import android.os.Looper
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
@@ -31,11 +34,44 @@ class EnvService : Service() {
             try {
                 startActivity(WindowActivity.intent(this@EnvService, toplevel.id))
             } catch (e: Exception) {
-                // Background activity starts can be refused; the window can
-                // still be opened from the app.
                 Log.w(TAG, "cannot open window for ${toplevel.id}", e)
             }
+            // Android silently refuses activity starts from the background
+            // (the app's own windows are not visible then): offer the window
+            // as a notification instead, whose tap may open it
+            handler.postDelayed({
+                if (toplevel.id !in compositor.hosted && compositor.toplevels.containsKey(toplevel.id))
+                    notifyWindow(toplevel)
+            }, WINDOW_CHECK_MS)
         }
+
+        override fun onToplevelClosed(id: Int) {
+            getSystemService(NotificationManager::class.java).cancel(WINDOW_NOTIFICATION_BASE + id)
+        }
+    }
+
+    private val handler = Handler(Looper.getMainLooper())
+
+    private fun notifyWindow(tl: Compositor.Toplevel) {
+        val nm = getSystemService(NotificationManager::class.java)
+        if (Build.VERSION.SDK_INT >= 26) {
+            nm.createNotificationChannel(NotificationChannel(
+                WINDOW_CHANNEL, getString(R.string.channel_windows), NotificationManager.IMPORTANCE_HIGH))
+        }
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+            (if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0)
+        val open = PendingIntent.getActivity(this, tl.id,
+            WindowActivity.intent(this, tl.id), flags)
+        val name = tl.title.ifEmpty { tl.appId.ifEmpty { getString(R.string.window_unnamed) } }
+        val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, WINDOW_CHANNEL)
+                      else @Suppress("DEPRECATION") Notification.Builder(this)
+        nm.notify(WINDOW_NOTIFICATION_BASE + tl.id, builder
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle(getString(R.string.window_opened, name))
+            .setContentText(getString(R.string.window_opened_text))
+            .setContentIntent(open)
+            .setAutoCancel(true)
+            .build())
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -47,6 +83,9 @@ class EnvService : Service() {
         compositor.addListener(autoOpen)
         startCompositor(this)
         Session.start(this)
+        Services.start(this)
+        // Linux keyboard layout follows a connected hardware keyboard
+        app.droidnative.display.HardwareKeyboard.watch(this)
         Devices.start(this)
     }
 
@@ -55,6 +94,7 @@ class EnvService : Service() {
     override fun onDestroy() {
         compositor.removeListener(autoOpen)
         Devices.stop()
+        Services.stop()
         Session.stop()
         compositor.stop()
         isRunning = false
@@ -84,6 +124,9 @@ class EnvService : Service() {
         private const val TAG = "dn-env"
         private const val CHANNEL = "environment"
         private const val NOTIFICATION_ID = 1
+        private const val WINDOW_CHANNEL = "windows"
+        private const val WINDOW_NOTIFICATION_BASE = 1000
+        private const val WINDOW_CHECK_MS = 1500L
 
         /** True between onCreate and onDestroy of the service. */
         @Volatile var isRunning = false

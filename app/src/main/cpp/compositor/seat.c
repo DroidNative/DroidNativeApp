@@ -204,10 +204,33 @@ static void pointer_set_focus(struct dnc_server *srv, struct dnc_surface *s,
     }
 }
 
+void dnc_seat_pointer_focus_surface(struct dnc_server *srv, struct dnc_surface *s)
+{
+    pointer_set_focus(srv, s, srv->seat.pointer_sx, srv->seat.pointer_sy);
+}
+
+void dnc_seat_pointer_relative(struct dnc_server *srv, struct dnc_toplevel *tl,
+                               double dx, double dy, uint32_t time)
+{
+    (void)tl;
+    // Host pixels to surface coordinates
+    double s = srv->config.scale > 0 ? srv->config.scale : 1;
+    dnc_relative_motion(srv, dx / s, dy / s, time);
+    struct wl_resource *res;
+    if (srv->seat.pointer_focus)
+        for_each_client_resource(res, &srv->seat.pointers, surface_client(srv->seat.pointer_focus))
+            pointer_frame(res);
+}
+
 void dnc_seat_pointer_motion(struct dnc_server *srv, struct dnc_toplevel *tl,
                              double x, double y, uint32_t time)
 {
     struct dnc_seat_state *seat = &srv->seat;
+    // A locked pointer does not move; the host sends relative motion
+    if (dnc_pointer_locked(srv))
+        return;
+    double old_sx = seat->pointer_sx, old_sy = seat->pointer_sy;
+    struct dnc_surface *old_focus = seat->pointer_focus;
     struct hit hit = { 0 };
     hit_toplevel(srv, tl, x, y, &hit);
 
@@ -224,6 +247,8 @@ void dnc_seat_pointer_motion(struct dnc_server *srv, struct dnc_toplevel *tl,
     seat->pointer_sy = hit.sy;
     if (!seat->pointer_focus)
         return;
+    if (seat->pointer_focus == old_focus)
+        dnc_relative_motion(srv, hit.sx - old_sx, hit.sy - old_sy, time);
     struct wl_resource *res;
     for_each_client_resource(res, &seat->pointers, surface_client(seat->pointer_focus)) {
         wl_pointer_send_motion(res, time, wl_fixed_from_double(hit.sx),
@@ -273,6 +298,36 @@ void dnc_seat_pointer_axis(struct dnc_server *srv, struct dnc_toplevel *tl,
         if (dx != 0)
             wl_pointer_send_axis(res, time, WL_POINTER_AXIS_HORIZONTAL_SCROLL,
                                  wl_fixed_from_double(dx));
+        pointer_frame(res);
+    }
+}
+
+// Mouse wheel notches (emulated by touch gestures): Xwayland and toolkits
+// that scroll by lines need the discrete steps, not only a distance
+void dnc_seat_pointer_wheel(struct dnc_server *srv, struct dnc_toplevel *tl,
+                            int32_t steps_x, int32_t steps_y, uint32_t time)
+{
+    (void)tl;
+    struct dnc_seat_state *seat = &srv->seat;
+    if (!seat->pointer_focus)
+        return;
+    struct wl_resource *res;
+    for_each_client_resource(res, &seat->pointers, surface_client(seat->pointer_focus)) {
+        bool v5 = wl_resource_get_version(res) >= WL_POINTER_AXIS_SOURCE_SINCE_VERSION;
+        if (v5)
+            wl_pointer_send_axis_source(res, WL_POINTER_AXIS_SOURCE_WHEEL);
+        if (steps_y) {
+            if (v5)
+                wl_pointer_send_axis_discrete(res, WL_POINTER_AXIS_VERTICAL_SCROLL, steps_y);
+            wl_pointer_send_axis(res, time, WL_POINTER_AXIS_VERTICAL_SCROLL,
+                                 wl_fixed_from_int(15 * steps_y));
+        }
+        if (steps_x) {
+            if (v5)
+                wl_pointer_send_axis_discrete(res, WL_POINTER_AXIS_HORIZONTAL_SCROLL, steps_x);
+            wl_pointer_send_axis(res, time, WL_POINTER_AXIS_HORIZONTAL_SCROLL,
+                                 wl_fixed_from_int(15 * steps_x));
+        }
         pointer_frame(res);
     }
 }
@@ -399,6 +454,7 @@ void dnc_seat_keyboard_focus(struct dnc_server *srv, struct dnc_toplevel *tl)
     // text-input enter must follow wl_keyboard.enter, leave precede nothing
     if (!s) {
         dnc_text_input_focus(srv, old, NULL);
+        dnc_constraints_update(srv);
         return;
     }
     wl_resource_add_destroy_listener(s->resource, &seat->keyboard_focus_destroy);
@@ -411,6 +467,7 @@ void dnc_seat_keyboard_focus(struct dnc_server *srv, struct dnc_toplevel *tl)
     }
     wl_array_release(&keys);
     dnc_text_input_focus(srv, old, s);
+    dnc_constraints_update(srv);
 }
 
 void dnc_seat_key(struct dnc_server *srv, struct dnc_toplevel *tl, uint32_t key,
@@ -436,6 +493,20 @@ void dnc_seat_key(struct dnc_server *srv, struct dnc_toplevel *tl, uint32_t key,
         wl_keyboard_send_key(res, serial, time, key,
                              pressed ? WL_KEYBOARD_KEY_STATE_PRESSED
                                      : WL_KEYBOARD_KEY_STATE_RELEASED);
+    }
+}
+
+void dnc_seat_keymap_changed(struct dnc_server *srv)
+{
+    struct dnc_seat_state *seat = &srv->seat;
+    struct wl_resource *res;
+    wl_resource_for_each(res, &seat->keyboards) {
+        wl_keyboard_send_keymap(res, WL_KEYBOARD_KEYMAP_FORMAT_XKB_V1,
+                                seat->keymap_fd, seat->keymap_size);
+        // Clients rebuild their state from the new keymap: resend modifiers
+        if (seat->keyboard_focus &&
+            wl_resource_get_client(res) == wl_resource_get_client(seat->keyboard_focus->resource))
+            keyboard_send_modifiers(srv, res, wl_display_next_serial(srv->display));
     }
 }
 

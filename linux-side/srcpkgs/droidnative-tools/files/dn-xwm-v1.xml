@@ -69,5 +69,9 @@
       <description summary="the user closed the host window"/>
       <arg name="window" type="uint"/>
     </event>
+    <event name="kill">
+      <description summary="the client did not close in time: disconnect it"/>
+      <arg name="window" type="uint"/>
+    </event>
   </interface>
 </protocol>

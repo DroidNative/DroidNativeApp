@@ -80,11 +80,15 @@ enum dnc_cmd_type {
     CMD_WINDOW_RESIZE,
     CMD_WINDOW_FOCUS,
     CMD_TOPLEVEL_CLOSE,
+    CMD_TOPLEVEL_KILL,
     CMD_TOUCH,
     CMD_POINTER_MOTION,
     CMD_POINTER_BUTTON,
     CMD_POINTER_AXIS,
+    CMD_POINTER_WHEEL,
+    CMD_POINTER_RELATIVE,
     CMD_KEY,
+    CMD_SET_KEYMAP,
     CMD_TEXT_COMMIT,
     CMD_TEXT_PREEDIT,
 };
@@ -143,10 +147,12 @@ static void window_apply_size(struct dnc_toplevel *tl, int32_t w, int32_t h)
     dnc_toplevel_configure(tl);
 }
 
+static void replace_keymap(struct dnc_server *srv, const char *path);
+
 static void cmd_execute(struct dnc_server *srv, struct dnc_cmd *cmd)
 {
     struct dnc_toplevel *tl = NULL;
-    if (cmd->type != CMD_STOP) {
+    if (cmd->type != CMD_STOP && cmd->type != CMD_SET_KEYMAP) {
         tl = dnc_toplevel_by_id(srv, cmd->id);
         if (!tl) {
             // The toplevel went away before the host saw the close callback
@@ -214,6 +220,14 @@ static void cmd_execute(struct dnc_server *srv, struct dnc_cmd *cmd)
         else if (tl->xdg && tl->xdg->role_resource)
             xdg_toplevel_send_close(tl->xdg->role_resource);
         break;
+    case CMD_TOPLEVEL_KILL:
+        if (tl->xdg && tl->xdg->x11) {
+            dnc_xwayland_kill(tl);
+        } else if (tl->xdg && tl->xdg->resource) {
+            dnc_log(srv, DNC_LOG_INFO, "toplevel %u did not close, disconnecting its client", tl->id);
+            wl_client_destroy(wl_resource_get_client(tl->xdg->resource));
+        }
+        break;
     case CMD_TOUCH:
         dnc_seat_touch(srv, tl, (enum dnc_touch_action)cmd->action, cmd->slot,
                        cmd->x, cmd->y, cmd->time);
@@ -227,8 +241,18 @@ static void cmd_execute(struct dnc_server *srv, struct dnc_cmd *cmd)
     case CMD_POINTER_AXIS:
         dnc_seat_pointer_axis(srv, tl, cmd->x, cmd->y, cmd->time);
         break;
+    case CMD_POINTER_RELATIVE:
+        dnc_seat_pointer_relative(srv, tl, cmd->x, cmd->y, cmd->time);
+        break;
+    case CMD_POINTER_WHEEL:
+        dnc_seat_pointer_wheel(srv, tl, (int32_t)cmd->a, (int32_t)cmd->b, cmd->time);
+        break;
     case CMD_KEY:
         dnc_seat_key(srv, tl, cmd->a, cmd->flag, cmd->b, cmd->c, cmd->time);
+        break;
+    case CMD_SET_KEYMAP:
+        if (cmd->text)
+            replace_keymap(srv, cmd->text);
         break;
     case CMD_TEXT_COMMIT:
         if (cmd->text)
@@ -307,6 +331,12 @@ void dnc_toplevel_close(struct dnc_server *srv, uint32_t id)
     cmd_push(srv, &c);
 }
 
+void dnc_toplevel_kill(struct dnc_server *srv, uint32_t id)
+{
+    struct dnc_cmd c = { .type = CMD_TOPLEVEL_KILL, .id = id };
+    cmd_push(srv, &c);
+}
+
 void dnc_input_touch(struct dnc_server *srv, uint32_t id,
                      enum dnc_touch_action action, int32_t slot,
                      float x, float y, uint32_t time_ms)
@@ -340,6 +370,21 @@ void dnc_input_pointer_axis(struct dnc_server *srv, uint32_t id,
     cmd_push(srv, &c);
 }
 
+void dnc_input_pointer_relative(struct dnc_server *srv, uint32_t id,
+                                float dx, float dy, uint32_t time_ms)
+{
+    struct dnc_cmd c = { .type = CMD_POINTER_RELATIVE, .id = id, .x = dx, .y = dy, .time = time_ms };
+    cmd_push(srv, &c);
+}
+
+void dnc_input_pointer_wheel(struct dnc_server *srv, uint32_t id,
+                             int32_t steps_x, int32_t steps_y, uint32_t time_ms)
+{
+    struct dnc_cmd c = { .type = CMD_POINTER_WHEEL, .id = id, .a = (uint32_t)steps_x,
+                         .b = (uint32_t)steps_y, .time = time_ms };
+    cmd_push(srv, &c);
+}
+
 void dnc_input_key(struct dnc_server *srv, uint32_t id, uint32_t key,
                    bool pressed, uint32_t mods_depressed,
                    uint32_t mods_locked, uint32_t time_ms)
@@ -347,6 +392,12 @@ void dnc_input_key(struct dnc_server *srv, uint32_t id, uint32_t key,
     struct dnc_cmd c = { .type = CMD_KEY, .id = id, .a = key, .flag = pressed,
                          .b = mods_depressed, .c = mods_locked,
                          .time = time_ms };
+    cmd_push(srv, &c);
+}
+
+void dnc_set_keymap(struct dnc_server *srv, const char *path)
+{
+    struct dnc_cmd c = { .type = CMD_SET_KEYMAP, .text = strdup(path) };
     cmd_push(srv, &c);
 }
 
@@ -554,15 +605,14 @@ static int bind_socket(const char *path)
     return fd;
 }
 
-static bool load_keymap(struct dnc_server *srv)
+static bool load_keymap_file(struct dnc_server *srv, const char *path)
 {
     srv->seat.keymap_fd = -1;
-    if (!srv->config.keymap_path)
+    if (!path)
         return true;
-    FILE *f = fopen(srv->config.keymap_path, "rb");
+    FILE *f = fopen(path, "rb");
     if (!f) {
-        dnc_log(srv, DNC_LOG_WARN, "no keymap at %s, keyboard disabled",
-                srv->config.keymap_path);
+        dnc_log(srv, DNC_LOG_WARN, "no keymap at %s, keyboard disabled", path);
         return true;
     }
     fseek(f, 0, SEEK_END);
@@ -580,6 +630,28 @@ static bool load_keymap(struct dnc_server *srv)
     srv->seat.keymap_size = (uint32_t)len + 1;
     free(buf);
     return srv->seat.keymap_fd >= 0;
+}
+
+static bool load_keymap(struct dnc_server *srv)
+{
+    return load_keymap_file(srv, srv->config.keymap_path);
+}
+
+// New layout (a hardware keyboard): every client gets the new keymap
+static void replace_keymap(struct dnc_server *srv, const char *path)
+{
+    int old_fd = srv->seat.keymap_fd;
+    uint32_t old_size = srv->seat.keymap_size;
+    if (!load_keymap_file(srv, path) || srv->seat.keymap_fd < 0) {
+        dnc_log(srv, DNC_LOG_WARN, "keymap %s not loaded, keeping the old one", path);
+        srv->seat.keymap_fd = old_fd;
+        srv->seat.keymap_size = old_size;
+        return;
+    }
+    if (old_fd >= 0)
+        close(old_fd);
+    dnc_seat_keymap_changed(srv);
+    dnc_log(srv, DNC_LOG_INFO, "keymap replaced by %s", path);
 }
 
 struct dnc_server *dnc_server_create(const struct dnc_config *config,
@@ -649,7 +721,7 @@ struct dnc_server *dnc_server_create(const struct dnc_config *config,
         !dnc_dmabuf_init(srv) || !dnc_seat_init(srv) ||
         !dnc_output_init(srv) || !dnc_data_device_init(srv) ||
         !dnc_decoration_init(srv) || !dnc_text_input_init(srv) ||
-        !dnc_xwayland_init(srv))
+        !dnc_xwayland_init(srv) || !dnc_constraints_init(srv))
         goto fail;
 
     dnc_log(srv, DNC_LOG_INFO, "listening on %s (scale %d)", srv->socket_path,

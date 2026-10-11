@@ -18,6 +18,8 @@ data class WindowSettings(
     val renderFactor: Float,
     val mouseMode: MouseMode,
     val rotation: Rotation,
+    val autoKeyboard: Boolean = true,
+    val overlay: String? = null,
 ) {
     companion object {
         /** Settings that apply to a window of client process [pid]. */
@@ -33,6 +35,8 @@ data class WindowSettings(
                 renderFactor = res?.let { Resolution.factor(it, short) } ?: 1f,
                 mouseMode = s.mouseMode ?: prefs.mouseMode,
                 rotation = s.rotation ?: Rotation.AUTO,
+                autoKeyboard = s.autoKeyboard,
+                overlay = s.overlay,
             )
         }
 

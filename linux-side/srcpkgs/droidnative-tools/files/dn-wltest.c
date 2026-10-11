@@ -6,7 +6,9 @@
  * and waits for a frame callback after every commit.
  *
  * Usage: dn-wltest [--mode shm|dmabuf] [--frames N] [--app-id ID]
- *                  [--timeout-ms MS]
+ *                  [--timeout-ms MS] [--lock]
+ * --lock: lock the pointer (pointer-constraints) and count the relative
+ *         motion (relative-pointer) and absolute motion received.
  * Exit:  0 all frames were acknowledged, 1 protocol/setup error, 2 timeout.
  * Prints one JSON line with the result.
  */
@@ -26,6 +28,8 @@
 
 #include "xdg-shell-client-protocol.h"
 #include "linux-dmabuf-unstable-v1-client-protocol.h"
+#include "pointer-constraints-unstable-v1-client-protocol.h"
+#include "relative-pointer-unstable-v1-client-protocol.h"
 
 #define DRM_FORMAT_XRGB8888 0x34325258
 
@@ -35,6 +39,54 @@ struct buffer {
     struct wl_buffer *buffer;
     void *data;
     bool busy;
+};
+
+struct lock_state {
+    struct wl_seat *seat;
+    struct wl_pointer *pointer;
+    struct zwp_pointer_constraints_v1 *constraints;
+    struct zwp_relative_pointer_manager_v1 *relative_manager;
+    struct zwp_relative_pointer_v1 *relative;
+    struct zwp_locked_pointer_v1 *locked;
+    bool is_locked;
+    int relative_events, absolute_events;
+    double dx, dy;
+};
+
+static struct lock_state lk;
+
+static void ptr_enter(void *d, struct wl_pointer *p, uint32_t serial, struct wl_surface *s,
+                      wl_fixed_t x, wl_fixed_t y) { (void)d; (void)p; (void)serial; (void)s; (void)x; (void)y; }
+static void ptr_leave(void *d, struct wl_pointer *p, uint32_t serial, struct wl_surface *s)
+{ (void)d; (void)p; (void)serial; (void)s; }
+static void ptr_motion(void *d, struct wl_pointer *p, uint32_t t, wl_fixed_t x, wl_fixed_t y)
+{ (void)d; (void)p; (void)t; (void)x; (void)y; lk.absolute_events++; }
+static void ptr_button(void *d, struct wl_pointer *p, uint32_t serial, uint32_t t, uint32_t b, uint32_t st)
+{ (void)d; (void)p; (void)serial; (void)t; (void)b; (void)st; }
+static void ptr_axis(void *d, struct wl_pointer *p, uint32_t t, uint32_t a, wl_fixed_t v)
+{ (void)d; (void)p; (void)t; (void)a; (void)v; }
+
+static const struct wl_pointer_listener pointer_listener = {
+    .enter = ptr_enter, .leave = ptr_leave, .motion = ptr_motion,
+    .button = ptr_button, .axis = ptr_axis,
+};
+
+static void rel_motion(void *d, struct zwp_relative_pointer_v1 *r, uint32_t hi, uint32_t lo,
+                       wl_fixed_t dx, wl_fixed_t dy, wl_fixed_t ux, wl_fixed_t uy)
+{
+    (void)d; (void)r; (void)hi; (void)lo; (void)ux; (void)uy;
+    lk.relative_events++;
+    lk.dx += wl_fixed_to_double(dx);
+    lk.dy += wl_fixed_to_double(dy);
+}
+
+static const struct zwp_relative_pointer_v1_listener relative_listener = { .relative_motion = rel_motion };
+
+static void on_locked(void *d, struct zwp_locked_pointer_v1 *l) { (void)d; (void)l; lk.is_locked = true; }
+static void on_unlocked(void *d, struct zwp_locked_pointer_v1 *l) { (void)d; (void)l; lk.is_locked = false; }
+
+static const struct zwp_locked_pointer_v1_listener locked_listener = {
+    .locked = on_locked, .unlocked = on_unlocked,
 };
 
 struct app {
@@ -244,6 +296,12 @@ static void registry_global(void *data, struct wl_registry *reg, uint32_t name,
     } else if (strcmp(iface, xdg_wm_base_interface.name) == 0) {
         app->wm_base = wl_registry_bind(reg, name, &xdg_wm_base_interface, 1);
         xdg_wm_base_add_listener(app->wm_base, &wm_listener, app);
+    } else if (strcmp(iface, wl_seat_interface.name) == 0) {
+        lk.seat = wl_registry_bind(reg, name, &wl_seat_interface, 5);
+    } else if (strcmp(iface, zwp_pointer_constraints_v1_interface.name) == 0) {
+        lk.constraints = wl_registry_bind(reg, name, &zwp_pointer_constraints_v1_interface, 1);
+    } else if (strcmp(iface, zwp_relative_pointer_manager_v1_interface.name) == 0) {
+        lk.relative_manager = wl_registry_bind(reg, name, &zwp_relative_pointer_manager_v1_interface, 1);
     } else if (strcmp(iface, zwp_linux_dmabuf_v1_interface.name) == 0 && version >= 3) {
         app->dmabuf = wl_registry_bind(reg, name, &zwp_linux_dmabuf_v1_interface, 3);
         zwp_linux_dmabuf_v1_add_listener(app->dmabuf, &dmabuf_listener, app);
@@ -292,6 +350,7 @@ static int wait_for(struct app *app, bool *cond, uint64_t deadline)
 
 int main(int argc, char **argv)
 {
+    bool lock = false;
     struct app app = { .width = 320, .height = 240 };
     int frames = 120;
     int timeout_ms = 20000;
@@ -306,6 +365,8 @@ int main(int argc, char **argv)
             app_id = argv[++i];
         else if (!strcmp(argv[i], "--timeout-ms") && i + 1 < argc)
             timeout_ms = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--lock"))
+            lock = true;
         else {
             fprintf(stderr, "usage: %s [--mode shm|dmabuf] [--frames N] "
                             "[--app-id ID] [--timeout-ms MS]\n", argv[0]);
@@ -342,6 +403,21 @@ int main(int argc, char **argv)
     uint64_t start = now_ms();
     uint64_t deadline = start + (uint64_t)timeout_ms;
     int rc = wait_for(&app, &app.configured, deadline);
+
+    if (lock) {
+        if (!lk.seat || !lk.constraints || !lk.relative_manager) {
+            printf("{\"result\":\"error\",\"reason\":\"no pointer-constraints/relative-pointer\"}\n");
+            return 1;
+        }
+        lk.pointer = wl_seat_get_pointer(lk.seat);
+        wl_pointer_add_listener(lk.pointer, &pointer_listener, NULL);
+        lk.relative = zwp_relative_pointer_manager_v1_get_relative_pointer(lk.relative_manager, lk.pointer);
+        zwp_relative_pointer_v1_add_listener(lk.relative, &relative_listener, NULL);
+        lk.locked = zwp_pointer_constraints_v1_lock_pointer(lk.constraints, app.surface, lk.pointer,
+            NULL, ZWP_POINTER_CONSTRAINTS_V1_LIFETIME_PERSISTENT);
+        zwp_locked_pointer_v1_add_listener(lk.locked, &locked_listener, NULL);
+        wl_display_roundtrip(app.display);
+    }
 
     for (int f = 0; rc == 0 && f < frames && !app.closed; f++) {
         struct buffer *buf = NULL;
@@ -380,6 +456,10 @@ int main(int argc, char **argv)
            "\"elapsed_ms\":%llu,\"fps\":%.1f}\n",
            rc == 0 ? "ok" : rc == 2 ? "timeout" : "error", mode, app.frames_done,
            app.width, app.height, (unsigned long long)elapsed, fps);
+    if (lock)
+        printf("{\"lock\":{\"locked\":%s,\"relative_events\":%d,\"dx\":%.1f,\"dy\":%.1f,"
+               "\"absolute_events\":%d}}\n", lk.is_locked ? "true" : "false",
+               lk.relative_events, lk.dx, lk.dy, lk.absolute_events);
     fflush(stdout);
 
     for (int i = 0; i < 2; i++)

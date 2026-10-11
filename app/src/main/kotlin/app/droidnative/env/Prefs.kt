@@ -3,6 +3,8 @@ package app.droidnative.env
 import android.content.Context
 import app.droidnative.apps.MouseMode
 
+enum class ThemeMode { SYSTEM, LIGHT, DARK }
+
 /** Persistent settings. */
 class Prefs(context: Context) {
     private val sp = context.applicationContext
@@ -33,6 +35,11 @@ class Prefs(context: Context) {
 
     /** Default DPI: 96 per whole Android density step (2.75 -> 192). */
     fun defaultDpi(density: Float) = 96 * density.toInt().coerceAtLeast(1)
+
+    /** Colour scheme of DroidNative's own screens. */
+    var themeMode: ThemeMode
+        get() = ThemeMode.entries.firstOrNull { it.name == sp.getString("theme", null) } ?: ThemeMode.SYSTEM
+        set(v) = sp.edit().putString("theme", v.name).apply()
 
     var mouseMode: MouseMode
         get() = MouseMode.entries.firstOrNull { it.name == sp.getString("mouse_mode", null) } ?: MouseMode.MOUSE

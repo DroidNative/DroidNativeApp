@@ -80,6 +80,9 @@ class LinuxApps(context: Context) {
     private fun converted(icon: String): File? =
         File(root, "$ICON_CACHE/${cacheName(icon)}.png").takeIf { it.isFile }
 
+    /** Output of the last start of [entry]. */
+    fun logFile(entry: DesktopEntry) = File(paths.logDir, "app-${cacheName(entry.id)}.log")
+
     private fun cacheName(icon: String) = icon.replace(Regex("[^A-Za-z0-9._-]"), "_")
 
     /**
@@ -124,6 +127,8 @@ class LinuxApps(context: Context) {
             // No accessibility bus in the guest; GTK would wait for it
             "NO_AT_BRIDGE" to "1",
         )
+        // Light or dark like DroidNative (GTK settings.ini, libadwaita)
+        env.putAll(GuestTheme.prepare(app))
         val dpiVars = dpiEnv(settings.dpi)
         env.putAll(dpiVars)
         if (settings.children != ChildPolicy.ALL) {
@@ -135,7 +140,7 @@ class LinuxApps(context: Context) {
         writeAppList()
         AppLaunches.prune(paths)
         AppLaunches.dir(paths).mkdirs()
-        val log = File(paths.logDir, "app-${cacheName(entry.id)}.log")
+        val log = logFile(entry)
         log.parentFile?.mkdirs()
         // Login shell: /etc/profile.d/droidnative.sh sets the session
         // variables. The shell registers its pid, which the app keeps after

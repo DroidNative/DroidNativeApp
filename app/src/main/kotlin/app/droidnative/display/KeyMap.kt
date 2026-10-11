@@ -11,9 +11,23 @@ object KeyMap {
     private const val MOD_ALT = 1 shl 3
     private const val MOD_NUM = 1 shl 4
     private const val MOD_LOGO = 1 shl 6
+    private const val MOD_LEVEL3 = 1 shl 7   // Mod5
 
     /** Depressed modifiers for wl_keyboard.modifiers. */
+    /**
+     * xkb modifier masks for [meta]. Right Alt is AltGr (level 3, Mod5)
+     * when the keymap from a hardware keyboard has a third level.
+     */
     fun modsDepressed(meta: Int): Int {
+        var m = modsBase(meta)
+        if (HardwareKeyboard.altGrIsLevel3 && meta and KeyEvent.META_ALT_RIGHT_ON != 0) {
+            m = m or MOD_LEVEL3
+            if (meta and KeyEvent.META_ALT_LEFT_ON == 0) m = m and MOD_ALT.inv()
+        }
+        return m
+    }
+
+    private fun modsBase(meta: Int): Int {
         var m = 0
         if (meta and KeyEvent.META_SHIFT_ON != 0) m = m or MOD_SHIFT
         if (meta and KeyEvent.META_CTRL_ON != 0) m = m or MOD_CTRL
@@ -39,6 +53,11 @@ object KeyMap {
         if (sc in 1..0x2ff && event.device?.isVirtual == false) return sc
         return TABLE[event.keyCode] ?: 0
     }
+
+    /** Android keycode at the US position of evdev key [code], or 0. */
+    fun locationOf(code: Int): Int = REVERSE[code] ?: 0
+
+    private val REVERSE: Map<Int, Int> by lazy { TABLE.entries.associate { (k, v) -> v to k } }
 
     private val TABLE: Map<Int, Int> = buildMap {
         val letters = intArrayOf(30, 48, 46, 32, 18, 33, 34, 35, 23, 36, 37, 38, 50,

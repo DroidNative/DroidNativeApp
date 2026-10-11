@@ -12,8 +12,10 @@ import org.junit.runner.RunWith
  * Debug entry point, not part of the suite: runs one shell command in the
  * guest from inside the real app process (app SELinux domain and seccomp
  * filter, unlike adb run-as). Used by tests/device/app-sh.sh:
- *   -e cmd64 <base64 of the command> [-e timeout <seconds>] [-e devices 1]
+ *   -e cmd64 <base64 of the command> [-e timeout <seconds>] [-e devices 1] [-e sd 1]
  * "devices" starts the passthrough bridges (Devices) around the command.
+ * "sd" binds the app's private folder on the first removable volume at
+ * /mnt/sd (Android creates it on request, no permission needed).
  */
 @RunWith(AndroidJUnit4::class)
 class GuestCommand {
@@ -27,8 +29,13 @@ class GuestCommand {
         TestEnv.ensureRootfs()
         val devices = args.getString("devices") == "1"
         if (devices) app.droidnative.devices.Devices.start(TestEnv.context)
+        val binds = if (args.getString("sd") == "1") {
+            val sd = TestEnv.context.getExternalFilesDirs(null).drop(1).firstOrNull { it != null }
+            assumeTrue("no removable volume", sd != null)
+            listOf(sd!!.canonicalPath to "/mnt/sd")
+        } else emptyList()
         val r = try {
-            TestEnv.proot.sh(cmd, timeoutMs = timeout)
+            TestEnv.proot.sh(cmd, timeoutMs = timeout, extraBinds = binds)
         } finally {
             if (devices) app.droidnative.devices.Devices.stop()
         }

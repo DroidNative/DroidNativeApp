@@ -1,5 +1,7 @@
 package app.droidnative.display
 
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
 import android.view.Surface
 import java.util.concurrent.ConcurrentHashMap
@@ -47,6 +49,8 @@ class Compositor {
         fun onToplevelClosed(id: Int) {}
         /** A text field of the toplevel wants (or no longer wants) text entry. */
         fun onTextInput(id: Int, active: Boolean) {}
+        /** A program captured (locked) or released the pointer in the toplevel. */
+        fun onPointerLock(id: Int, locked: Boolean) {}
     }
 
     val toplevels = ConcurrentHashMap<Int, Toplevel>()
@@ -106,6 +110,36 @@ class Compositor {
     fun resize(id: Int, width: Int, height: Int) = withHandle { nativeResize(it, id, width, height) }
     fun focus(id: Int, focused: Boolean) = withHandle { nativeFocus(it, id, focused) }
     fun close(id: Int) = withHandle { nativeClose(it, id) }
+    /** Replaces the keyboard layout (compiled xkb keymap file) for all clients. */
+    fun setKeymap(path: String) = withHandle { nativeSetKeymap(it, path) }
+
+    /** Ends the client of [id] (Wayland: disconnect, X11: kill). */
+    fun kill(id: Int) = withHandle { nativeKill(it, id) }
+
+    /** Toplevels that currently have an Android window (WindowActivity). */
+    val hosted: MutableSet<Int> = ConcurrentHashMap.newKeySet()
+    private val main = Handler(Looper.getMainLooper())
+
+    /**
+     * The user removed the window from recents: ask the application to
+     * close, and end it after [CLOSE_GRACE_MS] unless it did, or another
+     * of its windows (a "save changes?" dialog, say) is open on screen.
+     */
+    fun closeFromHost(id: Int) {
+        val pid = toplevels[id]?.pid ?: 0
+        close(id)
+        main.postDelayed({
+            // The app may answer with new windows (dialogs, a restored
+            // session) that Android does not let it show from the background:
+            // what counts is whether the process still has a visible window
+            val remaining = if (pid != 0) toplevels.values.filter { it.pid == pid }
+                            else listOfNotNull(toplevels[id])
+            if (remaining.isNotEmpty() && remaining.none { it.id in hosted }) {
+                Log.i(TAG, "toplevel $id (pid $pid) still has hidden windows, ending its client")
+                kill(remaining.first().id)
+            }
+        }, CLOSE_GRACE_MS)
+    }
 
     fun touch(id: Int, action: Int, slot: Int, x: Float, y: Float, time: Int) =
         withHandle { nativeTouch(it, id, action, slot, x, y, time) }
@@ -115,6 +149,14 @@ class Compositor {
         withHandle { nativePointerButton(it, id, button, pressed, time) }
     fun pointerAxis(id: Int, dx: Float, dy: Float, time: Int) =
         withHandle { nativePointerAxis(it, id, dx, dy, time) }
+    /** Pointer movement while the pointer is locked; window (buffer) pixels. */
+    fun pointerRelative(id: Int, dx: Float, dy: Float, time: Int) =
+        withHandle { nativePointerRelative(it, id, dx, dy, time) }
+
+    /** Mouse wheel notches; positive scrolls down/right. */
+    fun pointerWheel(id: Int, stepsX: Int, stepsY: Int, time: Int) =
+        withHandle { nativePointerWheel(it, id, stepsX, stepsY, time) }
+
     fun key(id: Int, key: Int, pressed: Boolean, modsDepressed: Int, modsLocked: Int, time: Int) =
         withHandle { nativeKey(it, id, key, pressed, modsDepressed, modsLocked, time) }
 
@@ -148,6 +190,7 @@ class Compositor {
     @Suppress("unused")
     private fun onToplevelNew(id: Int, appId: String, title: String, pid: Int) {
         val tl = Toplevel(id, appId, title, pid)
+        Log.i(TAG, "toplevel $id new: app_id=$appId title=$title pid=$pid")
         toplevels[id] = tl
         for (l in listeners) runCatching { l.onToplevelNew(tl) }.onFailure { Log.e(TAG, "listener", it) }
     }
@@ -162,6 +205,7 @@ class Compositor {
 
     @Suppress("unused")
     private fun onToplevelClosed(id: Int) {
+        Log.i(TAG, "toplevel $id closed")
         toplevels.remove(id)
         for (l in listeners) runCatching { l.onToplevelClosed(id) }.onFailure { Log.e(TAG, "listener", it) }
     }
@@ -170,6 +214,16 @@ class Compositor {
     private fun onTextInput(id: Int, active: Boolean) {
         textInputToplevel = if (active) id else 0
         for (l in listeners) runCatching { l.onTextInput(id, active) }.onFailure { Log.e(TAG, "listener", it) }
+    }
+
+    /** Toplevels whose program has locked the pointer. */
+    val pointerLocked: MutableSet<Int> = ConcurrentHashMap.newKeySet()
+
+    @Suppress("unused")
+    private fun onPointerLock(id: Int, locked: Boolean) {
+        if (locked) pointerLocked += id else pointerLocked -= id
+        Log.i(TAG, "toplevel $id pointer ${if (locked) "locked" else "released"}")
+        for (l in listeners) runCatching { l.onPointerLock(id, locked) }.onFailure { Log.e(TAG, "listener", it) }
     }
 
     private external fun nativeText(h: Long, id: Int, utf8: ByteArray, preedit: Boolean)
@@ -185,14 +239,19 @@ class Compositor {
     private external fun nativeResize(h: Long, id: Int, w: Int, hgt: Int)
     private external fun nativeFocus(h: Long, id: Int, focused: Boolean)
     private external fun nativeClose(h: Long, id: Int)
+    private external fun nativeKill(h: Long, id: Int)
+    private external fun nativeSetKeymap(h: Long, path: String)
     private external fun nativeTouch(h: Long, id: Int, action: Int, slot: Int, x: Float, y: Float, time: Int)
     private external fun nativePointerMotion(h: Long, id: Int, x: Float, y: Float, time: Int)
     private external fun nativePointerButton(h: Long, id: Int, button: Int, pressed: Boolean, time: Int)
     private external fun nativePointerAxis(h: Long, id: Int, dx: Float, dy: Float, time: Int)
+    private external fun nativePointerRelative(h: Long, id: Int, dx: Float, dy: Float, time: Int)
+    private external fun nativePointerWheel(h: Long, id: Int, stepsX: Int, stepsY: Int, time: Int)
     private external fun nativeKey(h: Long, id: Int, key: Int, pressed: Boolean, modsDepressed: Int, modsLocked: Int, time: Int)
     private external fun nativeStats(h: Long, id: Int, out: LongArray): Boolean
 
     companion object {
+        const val CLOSE_GRACE_MS = 3000L
         private const val TAG = "dn-compositor"
 
         // Must match enum dnc_touch_action

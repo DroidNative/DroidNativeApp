@@ -289,9 +289,20 @@ static void on_close(void *data, struct dn_xwm_v1 *x, uint32_t window)
     xcb_flush(xc);
 }
 
+static void on_kill(void *data, struct dn_xwm_v1 *x, uint32_t window)
+{
+    (void)data; (void)x;
+    if (!find(window))
+        return;
+    // Closes the client's X connection; Xlib programs exit on that
+    xcb_kill_client(xc, window);
+    xcb_flush(xc);
+}
+
 static const struct dn_xwm_v1_listener xwm_listener = {
     .configure = on_configure,
     .close = on_close,
+    .kill = on_kill,
 };
 
 static void registry_global(void *data, struct wl_registry *reg, uint32_t name,

@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.os.Process
 import android.util.Log
 import java.io.File
 
@@ -35,6 +36,7 @@ class MicBridge(runDir: File) {
 
     @SuppressLint("MissingPermission")   // checked through Passthrough before start()
     private fun loop() {
+        Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
         try {
             while (running) {
                 if (!wanted()) { Thread.sleep(300); continue }

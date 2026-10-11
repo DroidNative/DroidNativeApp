@@ -3,6 +3,7 @@ package app.droidnative.env
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
+import android.os.Process
 import android.util.Log
 import java.io.File
 import java.io.FileInputStream
@@ -45,6 +46,9 @@ class AudioOutput(private val fifo: File) {
     }
 
     private fun loop() {
+        // A busy guest (software rendering) must not starve the feeder: the
+        // AudioTrack buffer only covers about 100 ms
+        Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
         val minBuf = AudioTrack.getMinBufferSize(RATE, AudioFormat.CHANNEL_OUT_STEREO,
             AudioFormat.ENCODING_PCM_16BIT)
         val t = AudioTrack.Builder()
@@ -66,6 +70,8 @@ class AudioOutput(private val fifo: File) {
                 try {
                     FileInputStream(fifo).use { input ->
                         t.play()
+                        var underruns = t.underrunCount
+                        var checked = 0L
                         while (running) {
                             val n = input.read(buf)
                             if (n < 0) break            // writer closed: reopen
@@ -73,6 +79,13 @@ class AudioOutput(private val fifo: File) {
                             trackPeak(buf, n)
                             t.write(buf, 0, n)
                             bytesPlayed.addAndGet(n.toLong())
+                            val now = System.nanoTime()
+                            if (now - checked > 2_000_000_000L) {
+                                checked = now
+                                val u = t.underrunCount
+                                if (u != underruns) Log.w(TAG, "underruns: ${u - underruns} (total $u)")
+                                underruns = u
+                            }
                         }
                     }
                 } catch (e: IOException) {

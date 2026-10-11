@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark, like the app; a white background would hide the white belly -->
+    <color name="ic_launcher_background">#FF1B1F26</color>
+</resources>

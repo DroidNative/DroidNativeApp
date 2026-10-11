@@ -12,6 +12,8 @@ use the global settings (Settings tab, `env/Prefs.kt`).
 | UI density (DPI) | `LinuxApps.dpiEnv`: `GDK_DPI_SCALE` and `QT_SCALE_FACTOR` for the part the integer wl_output scale does not cover | next start |
 | Touch input (touch, emulated mouse clicks, emulated touchpad) | `display/TouchInput.kt` | windows opened afterwards |
 | Rotation (follow phone, portrait, landscape) | `WindowActivity.requestedOrientation` | windows opened afterwards |
+| On-screen buttons (a layout or none) | `WindowActivity` adds `overlay/OverlayView` over the surface ([on-screen-buttons.md](on-screen-buttons.md)) | windows opened afterwards |
+| Open keyboard automatically (default on) | `WindowActivity`: when off, text-input activation no longer shows the on-screen keyboard (hiding still follows the app) | windows opened afterwards |
 | On-screen buttons | not implemented yet (shown disabled) | |
 
 ## Global DPI

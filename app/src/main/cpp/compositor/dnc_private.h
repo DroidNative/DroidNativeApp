@@ -182,6 +182,9 @@ struct dnc_server {
     struct dnc_seat_state seat;
 
     struct wl_list text_inputs;          // text_input.link
+    struct wl_list constraints;          // pointer constraints (constraints.c)
+    struct wl_list relative_pointers;    // zwp_relative_pointer_v1 resources
+    struct constraint *active_constraint;
     struct wl_list xwl_surfaces;         // xwayland_surface_v1 resources
     struct wl_list xwl_windows;          // dnc_xwl_window.link
     struct wl_resource *xwm;             // dn_xwm_v1 of dn-xwm, NULL if none
@@ -222,6 +225,12 @@ bool dnc_data_device_init(struct dnc_server *srv);
 bool dnc_decoration_init(struct dnc_server *srv);
 bool dnc_text_input_init(struct dnc_server *srv);
 bool dnc_xwayland_init(struct dnc_server *srv);
+bool dnc_constraints_init(struct dnc_server *srv);
+// Focus changed: (de)activate pointer constraints
+void dnc_constraints_update(struct dnc_server *srv);
+bool dnc_pointer_locked(struct dnc_server *srv);
+// Movement for zwp_relative_pointer_v1 clients of the pointer focus
+void dnc_relative_motion(struct dnc_server *srv, double dx, double dy, uint32_t time_ms);
 void dnc_xwayland_finish(struct dnc_server *srv);
 
 /* Xwayland (xwayland.c) */
@@ -230,6 +239,7 @@ struct dnc_xwl_window;
 // The host window wants a size / activation: tell the X window manager
 void dnc_xwayland_configure(struct dnc_toplevel *tl);
 void dnc_xwayland_close(struct dnc_toplevel *tl);
+void dnc_xwayland_kill(struct dnc_toplevel *tl);
 // Host pid of the X client owning the toplevel (_NET_WM_PID), 0 if unknown
 int32_t dnc_xwayland_pid(const struct dnc_xwl_window *win);
 
@@ -256,9 +266,18 @@ void dnc_seat_pointer_button(struct dnc_server *srv, struct dnc_toplevel *tl,
                              uint32_t button, bool pressed, uint32_t time);
 void dnc_seat_pointer_axis(struct dnc_server *srv, struct dnc_toplevel *tl,
                            double dx, double dy, uint32_t time);
+void dnc_seat_pointer_wheel(struct dnc_server *srv, struct dnc_toplevel *tl,
+                            int32_t steps_x, int32_t steps_y, uint32_t time);
 void dnc_seat_key(struct dnc_server *srv, struct dnc_toplevel *tl,
                   uint32_t key, bool pressed, uint32_t mods_depressed,
                   uint32_t mods_locked, uint32_t time);
 void dnc_seat_keyboard_focus(struct dnc_server *srv, struct dnc_toplevel *tl);
+// After seat.keymap_fd changed: send the keymap to every wl_keyboard
+void dnc_seat_keymap_changed(struct dnc_server *srv);
+// Gives the pointer to s at its current position (pointer locks)
+void dnc_seat_pointer_focus_surface(struct dnc_server *srv, struct dnc_surface *s);
+// Relative movement while the pointer is locked
+void dnc_seat_pointer_relative(struct dnc_server *srv, struct dnc_toplevel *tl,
+                               double dx, double dy, uint32_t time);
 
 #endif
