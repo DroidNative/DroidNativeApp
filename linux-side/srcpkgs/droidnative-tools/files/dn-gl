@@ -1,0 +1,65 @@
+#!/bin/sh
+# dn-gl: run a program with a chosen OpenGL backend.
+# Usage: dn-gl <auto|zink|gl4es|llvmpipe> <command> [args...]
+#   zink      desktop GL 4.6 / GLES 3.2 on Vulkan (Turnip on Adreno)
+#   gl4es     desktop GL 2.1 translated to GLES 2 (on Zink or llvmpipe)
+#   llvmpipe  software rendering
+#   auto      zink when a KGSL GPU is present, llvmpipe otherwise
+set -e
+[ $# -ge 2 ] || { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+backend="$1"
+shift
+
+# Record every variable this script changes (DN_GL_VARS) and its previous
+# value (DN_GL_ORIG_<name>), so libdn-appenv can withdraw the choice from
+# child programs (per-app setting "programs started by this app").
+DN_GL_VARS=""
+note() {
+    case " $DN_GL_VARS " in *" $1 "*) return ;; esac
+    DN_GL_VARS="$DN_GL_VARS $1"
+    if eval "[ -n \"\${$1+set}\" ]"; then eval "export DN_GL_ORIG_$1=\"\$$1\""; fi
+}
+setv() { note "$1"; export "$1=$2"; }
+unsetv() { for v; do note "$v"; unset "$v"; done; }
+
+if [ "$backend" = auto ]; then
+    if [ -e /dev/kgsl-3d0 ]; then backend=zink; else backend=llvmpipe; fi
+fi
+
+use_zink() {
+    # With the DroidNative mesa build, EGL then presents through Vulkan WSI
+    # (kopper). GALLIUM_DRIVER=zink would select the swrast copy path instead,
+    # and LIBGL_ALWAYS_SOFTWARE would make Zink pick a CPU device.
+    unsetv LIBGL_ALWAYS_SOFTWARE GALLIUM_DRIVER
+    setv MESA_LOADER_DRIVER_OVERRIDE zink
+    # Low-end Adreno (a610, a702) only expose Vulkan 1.0 without this,
+    # which Zink cannot use.
+    setv TU_DEBUG "${TU_DEBUG:-noconform}"
+}
+
+case "$backend" in
+    zink)
+        use_zink
+        ;;
+    llvmpipe)
+        unsetv MESA_LOADER_DRIVER_OVERRIDE
+        setv GALLIUM_DRIVER llvmpipe
+        setv LIBGL_ALWAYS_SOFTWARE 1
+        ;;
+    gl4es)
+        if [ -e /dev/kgsl-3d0 ]; then use_zink; else setv GALLIUM_DRIVER llvmpipe; setv LIBGL_ALWAYS_SOFTWARE 1; fi
+        setv LD_LIBRARY_PATH "/usr/lib/gl4es${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+        # gl4es must load Mesa's real EGL/GLES, not its own wrapper
+        setv LIBGL_EGL /usr/lib/libEGL.so.1
+        setv LIBGL_GLES /usr/lib/libGLESv2.so.2
+        setv LIBGL_ES 2
+        setv LIBGL_NOBANNER 1
+        ;;
+    *)
+        echo "dn-gl: unknown backend '$backend'" >&2
+        exit 2
+        ;;
+esac
+setv DN_GL_BACKEND "$backend"
+export DN_GL_VARS
+exec "$@"

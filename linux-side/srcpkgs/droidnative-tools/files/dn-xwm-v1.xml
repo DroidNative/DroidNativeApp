@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="dn_xwm_v1">
+  <copyright>
+    Copyright (C) DroidNative contributors. GPL-3.0-or-later.
+  </copyright>
+  <description summary="X11 window management for the DroidNative compositor">
+    Private protocol between dn-xwm (the X11 window manager of rootless
+    Xwayland in the guest) and the DroidNative compositor. X windows are
+    identified by their X11 window id; their wl_surface by the serial
+    Xwayland assigned through xwayland_shell_v1 (WL_SURFACE_SERIAL).
+    Coordinates and sizes are in the X root window, which equals logical
+    compositor pixels (Xwayland runs without HiDPI scaling).
+  </description>
+
+  <interface name="dn_xwm_v1" version="1">
+    <request name="manage_toplevel">
+      <description summary="show an X toplevel in its own host window"/>
+      <arg name="window" type="uint"/>
+      <arg name="serial_lo" type="uint"/>
+      <arg name="serial_hi" type="uint"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </request>
+    <request name="manage_popup">
+      <description summary="show an override-redirect window (menu, tooltip)">
+        Attached to the active X toplevel; x and y are root coordinates.
+      </description>
+      <arg name="window" type="uint"/>
+      <arg name="serial_lo" type="uint"/>
+      <arg name="serial_hi" type="uint"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </request>
+    <request name="move_popup">
+      <arg name="window" type="uint"/>
+      <arg name="x" type="int"/>
+      <arg name="y" type="int"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+    </request>
+    <request name="set_title">
+      <arg name="window" type="uint"/>
+      <arg name="title" type="string"/>
+    </request>
+    <request name="set_class">
+      <description summary="WM_CLASS class, used as app id"/>
+      <arg name="window" type="uint"/>
+      <arg name="class" type="string"/>
+    </request>
+    <request name="set_pid">
+      <description summary="_NET_WM_PID, for per-app settings"/>
+      <arg name="window" type="uint"/>
+      <arg name="pid" type="int"/>
+    </request>
+    <request name="unmanage">
+      <arg name="window" type="uint"/>
+    </request>
+
+    <event name="configure">
+      <description summary="the host window wants this size and state"/>
+      <arg name="window" type="uint"/>
+      <arg name="width" type="int"/>
+      <arg name="height" type="int"/>
+      <arg name="activated" type="uint"/>
+    </event>
+    <event name="close">
+      <description summary="the user closed the host window"/>
+      <arg name="window" type="uint"/>
+    </event>
+  </interface>
+</protocol>

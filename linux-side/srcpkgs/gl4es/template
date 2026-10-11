@@ -1,0 +1,26 @@
+# Template file for 'gl4es'
+# Desktop OpenGL 2.1 on top of OpenGL ES 2 (ptitSeb/gl4es). Installed into
+# /usr/lib/gl4es so it never shadows Mesa; selected per program with dn-gl.
+pkgname=gl4es
+version=0.0.20261004
+revision=1
+_commit=ec16bedd8819c475326f4f1a3063772c6d986e06
+build_style=cmake
+configure_args="-DEGL_WRAPPER=ON -DGLX_STUBS=ON -DNOX11=OFF -DGBM=OFF
+ -DUSE_CLOCK=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo"
+# GCC 14: upstream mixes EGLAttrib*/EGLint* in egl.c (harmless, same use)
+CFLAGS="-Wno-error=incompatible-pointer-types"
+makedepends="libX11-devel"
+short_desc="OpenGL to OpenGL ES translation library (DroidNative build)"
+maintainer="DroidNative <demouser@example.invalid>"
+license="MIT"
+homepage="https://github.com/ptitSeb/gl4es"
+distfiles="https://github.com/ptitSeb/gl4es/archive/${_commit}.tar.gz"
+checksum=a6861d0976dd9808e0de09d6953724a20bb8de17add7313a88d500a56a6c4d79
+
+do_install() {
+	# The build puts its libraries into <source>/lib
+	vinstall lib/libGL.so.1 755 usr/lib/gl4es
+	vinstall lib/libEGL.so.1 755 usr/lib/gl4es
+	vlicense LICENSE
+}

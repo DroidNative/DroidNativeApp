@@ -1,0 +1,5 @@
+# Subpackages staged into the APK besides the main package (stage-packages.sh)
+mesa-dri
+mesa-libgallium
+libgbm
+mesa-vulkan-lavapipe

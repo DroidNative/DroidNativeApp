@@ -1,0 +1,169 @@
+#!/bin/sh
+# dn-appimage: AppImage support without FUSE (unprivileged Android apps
+# cannot mount). An AppImage is unpacked once and started through its AppRun.
+#
+# Usage: dn-appimage install <file.AppImage>   unpack and register
+#        dn-appimage list                      id<TAB>name<TAB>directory
+#        dn-appimage remove <id>               unregister and delete
+#        dn-appimage run <id> [args...]        start it (same as the .desktop)
+#
+# Layout: $XDG_DATA_HOME/droidnative/appimages/<id>/   unpacked AppDir
+#         $XDG_DATA_HOME/applications/dn-appimage-<id>.desktop
+set -eu
+
+DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
+STORE="$DATA/droidnative/appimages"
+APPS="$DATA/applications"
+
+die() { echo "dn-appimage: $*" >&2; exit 1; }
+
+# ELF e_machine of a file as a uname-style name
+elf_arch() {
+    case "$(od -An -tu2 -j18 -N2 "$1" 2>/dev/null | tr -d ' ')" in
+        183) echo aarch64 ;;
+        40)  echo arm ;;
+        62)  echo x86_64 ;;
+        3)   echo i686 ;;
+        *)   echo unknown ;;
+    esac
+}
+
+host_arch() {
+    case "$(uname -m)" in
+        aarch64) echo aarch64 ;;
+        armv7l|armv8l|armv6l) echo arm ;;
+        x86_64) echo x86_64 ;;
+        i?86) echo i686 ;;
+        *) uname -m ;;
+    esac
+}
+
+# id from the file name: lower case, [a-z0-9._-] only, no version suffix noise
+make_id() {
+    basename "$1" | sed -e 's/\.[Aa]pp[Ii]mage$//' | tr 'A-Z' 'a-z' |
+        sed -e 's/[^a-z0-9._-]/-/g' -e 's/--*/-/g' -e 's/^-//' -e 's/-$//'
+}
+
+# Only ever delete below $STORE, and only a plain id
+remove_tree() {
+    case "$1" in
+        ''|*/*|.|..) die "refusing to remove '$1'" ;;
+    esac
+    [ -d "$STORE/$1" ] || return 0
+    # Unpacked trees can contain read-only directories
+    chmod -R u+rwX "$STORE/$1" 2>/dev/null || true
+    rm -r "${STORE:?}/$1"
+}
+
+desktop_value() {   # file key
+    sed -n "/^\[Desktop Entry\]/,/^\[/{s/^$2=//p}" "$1" | head -n 1
+}
+
+cmd_install() {
+    [ $# -eq 1 ] || die "usage: dn-appimage install <file.AppImage>"
+    src="$1"
+    [ -f "$src" ] || die "no such file: $src"
+    arch="$(elf_arch "$src")"
+    [ "$arch" = "$(host_arch)" ] ||
+        die "$src is built for $arch, this environment is $(host_arch)"
+
+    id="$(make_id "$src")"
+    [ -n "$id" ] || die "cannot derive an id from $src"
+    mkdir -p "$STORE" "$APPS"
+    work="$STORE/.unpack-$id.$$"
+    mkdir "$work"
+    cp "$src" "$work/app.AppImage"
+    chmod 755 "$work/app.AppImage"
+
+    # Type 2 runtimes unpack themselves; fall back to unsquashfs at the
+    # payload offset for runtimes that refuse.
+    if ! (cd "$work" && ./app.AppImage --appimage-extract >/dev/null 2>&1) ||
+       [ ! -d "$work/squashfs-root" ]; then
+        command -v unsquashfs >/dev/null ||
+            die "self-extraction failed and unsquashfs is not installed"
+        off="$(cd "$work" && ./app.AppImage --appimage-offset 2>/dev/null || true)"
+        [ -n "$off" ] || die "cannot find the squashfs payload in $src"
+        (cd "$work" && unsquashfs -q -o "$off" -d squashfs-root app.AppImage >/dev/null) ||
+            die "unsquashfs failed"
+    fi
+    [ -e "$work/squashfs-root/AppRun" ] || die "no AppRun in $src"
+
+    remove_tree "$id"
+    mv "$work/squashfs-root" "$STORE/$id"
+    rm -f "$work/app.AppImage"
+    rmdir "$work"
+    dir="$STORE/$id"
+
+    # Desktop entry shipped in the AppDir root, if any
+    entry="$(find "$dir" -maxdepth 1 -name '*.desktop' | head -n 1)"
+    name="$id"
+    icon=""
+    extra=""
+    if [ -n "$entry" ]; then
+        v="$(desktop_value "$entry" Name)"; [ -z "$v" ] || name="$v"
+        icon="$(desktop_value "$entry" Icon)"
+        for key in Comment Categories MimeType Terminal StartupWMClass; do
+            v="$(desktop_value "$entry" "$key")"
+            [ -z "$v" ] || extra="$extra$key=$v
+"
+        done
+    fi
+    # Icon: absolute path to the file in the AppDir (.DirIcon or <Icon>.*)
+    iconpath=""
+    for cand in "$dir/$icon.png" "$dir/$icon.svg" "$dir/$icon.xpm" "$dir/.DirIcon"; do
+        if [ -n "$icon" ] || [ "$cand" = "$dir/.DirIcon" ]; then
+            if [ -e "$cand" ]; then iconpath="$cand"; break; fi
+        fi
+    done
+
+    {
+        echo "[Desktop Entry]"
+        echo "Type=Application"
+        echo "Name=$name"
+        echo "Exec=dn-appimage run $id %U"
+        [ -z "$iconpath" ] || echo "Icon=$iconpath"
+        printf '%s' "$extra"
+        echo "X-DroidNative-AppImage=$id"
+    } > "$APPS/dn-appimage-$id.desktop"
+
+    echo "$id"
+}
+
+cmd_list() {
+    [ -d "$STORE" ] || return 0
+    for dir in "$STORE"/*/; do
+        [ -e "$dir/AppRun" ] || continue
+        id="$(basename "$dir")"
+        name="$id"
+        entry="$APPS/dn-appimage-$id.desktop"
+        [ ! -f "$entry" ] || name="$(desktop_value "$entry" Name)"
+        printf '%s\t%s\t%s\n' "$id" "$name" "${dir%/}"
+    done
+}
+
+cmd_remove() {
+    [ $# -eq 1 ] || die "usage: dn-appimage remove <id>"
+    [ -d "$STORE/$1" ] || die "not installed: $1"
+    remove_tree "$1"
+    rm -f "$APPS/dn-appimage-$1.desktop"
+}
+
+cmd_run() {
+    [ $# -ge 1 ] || die "usage: dn-appimage run <id> [args...]"
+    id="$1"; shift
+    dir="$STORE/$id"
+    [ -e "$dir/AppRun" ] || die "not installed: $id"
+    # What the AppImage runtime would export for the payload
+    export APPDIR="$dir" APPIMAGE="$dir/AppRun" OWD="$(pwd)"
+    exec "$dir/AppRun" "$@"
+}
+
+[ $# -ge 1 ] || { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+cmd="$1"; shift
+case "$cmd" in
+    install) cmd_install "$@" ;;
+    list)    cmd_list "$@" ;;
+    remove)  cmd_remove "$@" ;;
+    run)     cmd_run "$@" ;;
+    *) die "unknown command '$cmd'" ;;
+esac

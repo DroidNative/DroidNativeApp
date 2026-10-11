@@ -1,0 +1,22 @@
+diff --git a/src/egl/main/eglapi.c b/src/egl/main/eglapi.c
+index fb5a8b6..c84b761 100644
+--- a/src/egl/main/eglapi.c
++++ b/src/egl/main/eglapi.c
+@@ -703,6 +703,17 @@ eglInitialize(EGLDisplay dpy, EGLint *major, EGLint *minor)
+                disp->Options.Zink = EGL_TRUE;
+                success = _eglDriver.Initialize(disp);
+             }
++            /* DroidNative: without a DRM device (Android, KGSL) Zink can
++             * still present through Vulkan WSI (kopper) on the software
++             * loader path. LIBGL_ALWAYS_SOFTWARE stays unset, so Zink keeps
++             * the hardware Vulkan device.
++             */
++            if (!success && disp->Options.Zink) {
++               disp->Options.ForceSoftware = EGL_TRUE;
++               success = _eglDriver.Initialize(disp);
++               if (!success)
++                  disp->Options.ForceSoftware = EGL_FALSE;
++            }
+             if (!success) {
+                disp->Options.Zink = EGL_FALSE;
+                disp->Options.ForceSoftware = EGL_TRUE;

@@ -1,0 +1,56 @@
+package app.droidnative.env
+
+import android.content.Context
+import java.io.File
+
+/**
+ * Host-side layout of the environment (all inside the app's private storage).
+ * Unix socket paths must stay below 108 bytes, so runtime dirs are kept short.
+ */
+class EnvPaths(context: Context) {
+    val appContext: Context = context.applicationContext
+    val filesDir: File = context.filesDir
+    val nativeLibDir = File(context.applicationInfo.nativeLibraryDir)
+
+    /** Extracted Void rootfs, the guest's "/". */
+    val rootfs = File(filesDir, "rootfs")
+    /** Marker written when extraction and first-boot setup completed. */
+    val rootfsReady = File(filesDir, "rootfs.ready")
+    val setupDone = File(filesDir, "setup.done")
+
+    /** Bound into the guest at /run/droidnative (sockets, keymap). */
+    val runDir = File(filesDir, "run")
+    val waylandSocket = File(runDir, "wayland-0")
+    val keymap = File(runDir, "keymap.xkb")
+    /** Written by the guest's PulseAudio (module-pipe-sink), read by AudioOutput. */
+    val audioFifo = File(runDir, "audio.fifo")
+
+    /** Fake /proc entries Android hides from apps. */
+    val sysdataDir = File(filesDir, "sysdata")
+    /** Local xbps repository copied from APK assets. */
+    val localRepo = File(filesDir, "repo")
+
+    val prootTmp = File(context.cacheDir, "proot")
+    val downloads = File(context.cacheDir, "downloads")
+    val logDir = File(filesDir, "logs")
+
+    val proot = File(nativeLibDir, "libproot.so")
+    val prootLoader = File(nativeLibDir, "libproot-loader.so")
+    val prootLoader32 = File(nativeLibDir, "libproot-loader32.so")
+
+    fun ensureDirs() {
+        for (d in listOf(runDir, sysdataDir, prootTmp, downloads, logDir, localRepo))
+            d.mkdirs()
+    }
+
+    companion object {
+        /** Guest-side mount point of [runDir]. */
+        const val GUEST_RUN_DIR = "/run/droidnative"
+        const val GUEST_WAYLAND_DISPLAY = "wayland-0"
+        const val GUEST_LOCAL_REPO = "/opt/droidnative/repo"
+        /** Unprivileged guest account everything except package management runs as. */
+        const val GUEST_USER = "user"
+        const val GUEST_UID = 1000
+        const val GUEST_HOME = "/home/user"
+    }
+}

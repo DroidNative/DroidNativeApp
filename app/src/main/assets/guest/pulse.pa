@@ -1,0 +1,9 @@
+# /etc/droidnative/pulse.pa, installed by DroidNative.
+# One sink that writes raw PCM into a FIFO read by the Android app.
+# Format must match AudioOutput.kt: s16le, 48000 Hz, stereo.
+load-module module-native-protocol-unix auth-anonymous=1
+load-module module-pipe-sink sink_name=android file=/run/droidnative/audio.fifo format=s16le rate=48000 channels=2 sink_properties=device.description=Android
+set-default-sink android
+load-module module-always-sink
+# Stop feeding silence while nothing plays, so Android's audio path can idle
+load-module module-suspend-on-idle timeout=3

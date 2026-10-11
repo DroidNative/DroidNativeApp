@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DroidNative</string>
+    <string name="channel_env">Linux environment</string>
+    <string name="env_running">Linux environment is running</string>
+    <string name="fgs_special_use">Keeps the Linux environment and its services running</string>
+
+    <!-- Tabs -->
+    <string name="tab_overview">Overview</string>
+    <string name="tab_install">Install</string>
+    <string name="tab_settings">Settings</string>
+    <string name="tab_placeholder">Nothing here yet.</string>
+
+    <!-- Container status -->
+    <string name="status_title">Linux environment</string>
+    <string name="status_not_installed">Not installed</string>
+    <string name="status_installing">Installing</string>
+    <string name="status_stopped">Stopped</string>
+    <string name="status_running">Running</string>
+    <string name="status_error">Error</string>
+    <string name="action_install">Install</string>
+    <string name="action_start">Start</string>
+    <string name="action_stop">Stop</string>
+    <string name="action_retry">Try again</string>
+    <string name="status_install_hint">Downloads Void Linux and its packages, several hundred MB.</string>
+
+    <string name="status_needs_update">Update needed</string>
+    <string name="action_update">Update</string>
+    <string name="status_needs_setup">Packages need installing or updating.</string>
+    <string name="apps_title">Applications</string>
+    <string name="apps_empty">No applications found.</string>
+    <string name="install_native">Install Native (xbps) Package</string>
+    <string name="install_native_title">Native packages</string>
+    <string name="install_native_summary">Void Linux packages, installed with OctoXBPS: search, install, update and remove.</string>
+    <string name="install_native_missing">OctoXBPS is not installed. Update the environment from the Overview tab.</string>
+    <string name="install_needs_env">Install the Linux environment on the Overview tab first.</string>
+    <string name="app_add_home">Add to home screen</string>
+    <string name="app_add_home_summary">Opens like its own app, straight from the launcher</string>
+    <string name="app_open">Open</string>
+    <string name="app_settings">Change per-app settings</string>
+    <string name="app_settings_summary">Graphics, resolution, touch input, rotation</string>
+    <string name="app_settings_title">%1$s settings</string>
+    <string name="app_settings_hint">Window settings apply to windows opened from now on, graphics and DPI when the app starts next.</string>
+    <string name="button_overlays">On-screen buttons</string>
+    <string name="coming_later">Coming in a later version</string>
+    <string name="children_title">Programs started by this app</string>
+    <string name="children_all">Use these settings too</string>
+    <string name="children_unlisted">Use them unless the program is in the application list</string>
+    <string name="children_none">Use their own or the global settings</string>
+    <string name="save">Save</string>
+    <string name="reset">Reset</string>
+    <string name="app_add_home_unsupported">This launcher does not accept shortcuts.</string>
+    <string name="app_add_home_requested">Shortcut for %1$s requested</string>
+    <string name="apps_search">Search applications</string>
+    <string name="apps_no_match">No application matches.</string>
+    <string name="cat_accessories">Accessories</string>
+    <string name="cat_development">Development</string>
+    <string name="cat_education">Education</string>
+    <string name="cat_games">Games</string>
+    <string name="cat_graphics">Graphics</string>
+    <string name="cat_internet">Internet</string>
+    <string name="cat_multimedia">Multimedia</string>
+    <string name="cat_office">Office</string>
+    <string name="cat_settings">Settings</string>
+    <string name="cat_system">System</string>
+    <string name="cat_other">Other</string>
+    <string name="apps_start_failed">Could not start %1$s</string>
+
+    <!-- Settings -->
+    <string name="settings_devices">Device access</string>
+    <string name="settings_devices_hint">Hardware that Linux applications may use. Android asks for permission the first time.</string>
+    <string name="pass_microphone">Microphone</string>
+    <string name="pass_sensors">Sensors</string>
+    <string name="pass_sensors_summary">Accelerometer, gyroscope and similar. No Android permission needed.</string>
+    <string name="pass_location">Location (GPS)</string>
+    <string name="pass_camera">Camera</string>
+    <string name="pass_state_on">Passed through</string>
+    <string name="pass_state_off">Off</string>
+    <string name="pass_state_denied">Permission denied. Allow it in the Android app settings.</string>
+    <string name="pass_open_settings">Open app settings</string>
+    <string name="settings_display">Display</string>
+    <string name="resolution">Resolution</string>
+    <string name="resolution_hint">Pixels along the short side (720) or a percentage (50%). Lower is faster; Android scales the picture up.</string>
+    <string name="resolution_default">Default</string>
+    <string name="dpi">UI density (DPI)</string>
+    <string name="dpi_value">%1$d DPI (%2$.2fx)</string>
+    <string name="dpi_default">Default (%1$d DPI)</string>
+    <string name="dpi_inherit">Global setting</string>
+    <string name="dpi_hint">Size of Linux UI elements, independent of the resolution. Whole steps of 96 DPI scale everything; the rest scales text (GTK) or everything (Qt). Applies after restarting the environment.</string>
+    <string name="mouse_mode">Touch input</string>
+    <string name="mouse_touch">Touch</string>
+    <string name="mouse_mouse">Emulated mouse clicks</string>
+    <string name="mouse_touchpad">Emulated touchpad</string>
+    <string name="backend">Graphics backend</string>
+    <string name="backend_auto">Automatic (Zink on Adreno)</string>
+    <string name="backend_zink">Zink (OpenGL on Vulkan)</string>
+    <string name="backend_gl4es">gl4es (OpenGL 2.1 on GLES)</string>
+    <string name="backend_llvmpipe">llvmpipe (software)</string>
+    <string name="rotation">Rotation</string>
+    <string name="rotation_auto">Follow the phone</string>
+    <string name="rotation_portrait">Portrait</string>
+    <string name="rotation_landscape">Landscape</string>
+    <string name="resolution_native">Native</string>
+    <string name="resolution_result">Windows render at %1$s (screen %2$s).</string>
+    <string name="resolution_invalid">Enter pixels between %1$d and %2$d, or a percentage such as 50%%.</string>
+    <string name="settings_storage">Storage</string>
+    <string name="storage_access">All files access</string>
+    <string name="storage_access_off">Off. Linux only sees its own files.</string>
+    <string name="storage_access_on">Mounted in Linux at:</string>
+    <string name="storage_access_needs_permission">Android has not granted access to all files.</string>
+    <string name="settings_restart_hint">Changes apply the next time the environment starts. Camera, microphone and location work while a DroidNative window is open (see docs/device-passthrough.md).</string>
+</resources>
