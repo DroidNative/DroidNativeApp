@@ -41,17 +41,25 @@ class LinuxApps(context: Context) {
 
     /**
      * Follows symlinks the way the guest sees them: absolute targets are
-     * relative to the rootfs (Flatpak exports are such links).
+     * relative to the rootfs (Flatpak exports are such links), except
+     * proot's emulated hard links, which point at the host path of the
+     * rootfs (`.l2s`; every file of a Flatpak checkout is one).
      */
     private fun resolve(file: File): File? {
         var f = file
-        repeat(8) {
+        repeat(12) {
             val target = try { Os.readlink(f.path) } catch (_: Exception) { return if (f.isFile) f else null }
-            f = if (target.startsWith("/")) File(root, target.trimStart('/'))
-                else File(f.parentFile, target)
+            f = when {
+                rootHosts.any { target.startsWith(it) } -> File(target)
+                target.startsWith("/") -> File(root, target.trimStart('/'))
+                else -> File(f.parentFile, target)
+            }
         }
         return null
     }
+
+    // The rootfs as host paths ("/data/user/0/..." and its canonical "/data/data/...")
+    private val rootHosts = listOf(root.path, root.canonicalPath).distinct().map { "$it/" }
 
     /** The listed entry with this id, or null. */
     fun find(id: String): DesktopEntry? = list().firstOrNull { it.id == id }
@@ -141,7 +149,7 @@ class LinuxApps(context: Context) {
     /**
      * Starts [entry] in the guest with its per-app settings; its windows
      * open through the compositor. [override] replaces stored settings for
-     * this start only (e.g. the Install tab's portrait OctoXBPS).
+     * this start only.
      */
     fun launch(entry: DesktopEntry, override: AppSettings? = null): Process {
         if (!EnvService.isRunning) EnvService.start(app)

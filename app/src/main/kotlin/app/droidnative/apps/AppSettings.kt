@@ -92,9 +92,4 @@ class AppSettingsStore(context: Context) {
         if (settings.isDefault) sp.edit().remove(id).apply()
         else sp.edit().putString(id, settings.toJson()).apply()
     }
-
-    /** Defaults for an application the user has not configured yet. */
-    fun putDefault(id: String, settings: AppSettings) {
-        if (!has(id)) put(id, settings)
-    }
 }

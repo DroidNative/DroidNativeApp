@@ -34,12 +34,18 @@ class T08AppImageTest {
         val r = TestEnv.proot.sh(
             "cd /home/user && id=\$(dn-appimage install $file) && echo \"id=\$id\" && dn-appimage list && " +
                 "cat ~/.local/share/applications/dn-appimage-\$id.desktop && " +
-                "dn-appimage run \$id --version 2>&1 | tail -1 && dn-appimage remove \$id && " +
-                "[ -z \"\$(dn-appimage list)\" ] && echo removed-ok",
+                "dn-appimage run \$id --version 2>&1 | tail -1 && " +
+                // Own title, then back to the AppImage's
+                "dn-appimage rename \$id 'Demo Tool' && grep -q '^Name=Demo Tool' " +
+                "~/.local/share/applications/dn-appimage-\$id.desktop && dn-appimage rename \$id && " +
+                "! grep -q '^Name=Demo Tool' ~/.local/share/applications/dn-appimage-\$id.desktop && echo rename-ok && " +
+                "dn-appimage remove \$id && " +
+                // Other AppImages the user installed stay listed
+                "! dn-appimage list | cut -f1 | grep -qx \"\$id\" && echo removed-ok",
             timeoutMs = 300_000)
         TestEnv.saveOutput("appimage", r)
-        TestEnv.report("appimage", "exit=${r.exitCode} ${r.output.lines().filter { it.startsWith("id=") || it.startsWith("appimagetool,") || it == "removed-ok" }}")
-        assertTrue(r.output, r.ok && r.output.contains("removed-ok") &&
+        TestEnv.report("appimage", "exit=${r.exitCode} ${r.output.lines().filter { it.startsWith("id=") || it.startsWith("appimagetool,") || it == "removed-ok" || it == "rename-ok" }}")
+        assertTrue(r.output, r.ok && r.output.contains("removed-ok") && r.output.contains("rename-ok") &&
             r.output.contains("Exec=dn-appimage run") && r.output.contains("appimagetool,"))
     }
 }

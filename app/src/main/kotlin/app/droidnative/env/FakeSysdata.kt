@@ -19,6 +19,11 @@ object FakeSysdata {
         // bubblewrap reads these when setting up user namespaces
         "overflowuid" to "/proc/sys/kernel/overflowuid",
         "overflowgid" to "/proc/sys/kernel/overflowgid",
+        // libpci (pciutils) ends the whole process with exit(1) when it
+        // finds neither /sys/bus/pci nor /proc/bus/pci; Chromium probes the
+        // GPU through it at start and again after a minute. An empty
+        // directory listing no devices keeps it alive.
+        "pci" to "/proc/bus/pci",
     )
 
     fun write(dir: File) {
@@ -39,6 +44,8 @@ object FakeSysdata {
         writeIfChanged(File(dir, "max_user_watches"), "4096\n")
         writeIfChanged(File(dir, "overflowuid"), "65534\n")
         writeIfChanged(File(dir, "overflowgid"), "65534\n")
+        File(dir, "pci").mkdirs()
+        writeIfChanged(File(dir, "pci/devices"), "")
     }
 
     private fun fakeStat(cpus: Int): String {

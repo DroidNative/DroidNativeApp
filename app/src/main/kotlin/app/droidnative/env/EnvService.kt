@@ -86,6 +86,8 @@ class EnvService : Service() {
         Bridge.start(this)
         startCompositor(this)
         Session.start(this)
+        // xbps packages installed from a terminal since the last start
+        app.droidnative.apps.Presets.checkXbpsInBackground(this)
         Services.start(this)
         // Linux keyboard layout follows a connected hardware keyboard
         app.droidnative.display.HardwareKeyboard.watch(this)

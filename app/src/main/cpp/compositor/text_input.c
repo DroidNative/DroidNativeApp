@@ -4,6 +4,11 @@
  * the composed text back. Toolkits (GTK 3/4, Qt 6) use it on Wayland; key
  * events alone cannot express text from an Android input method.
  *
+ * zwp_text_input_manager_v1 does the same for Chromium and Electron
+ * (--enable-wayland-ime): Chromium 126 knows only v1, later versions take
+ * v3 only with --wayland-text-input-version=3. A v1 input counts
+ * as enabled between activate and deactivate on the focused surface.
+ *
  * Surrounding text, content type and cursor rectangle are accepted and
  * ignored: the Android side runs the input method without an editor model.
  */
@@ -11,6 +16,7 @@
 #include <string.h>
 
 #include "dnc_private.h"
+#include "text-input-unstable-v1-server-protocol.h"
 #include "text-input-unstable-v3-server-protocol.h"
 
 #define TEXT_INPUT_VERSION 1
@@ -19,9 +25,10 @@ struct text_input {
     struct wl_resource *resource;
     struct wl_list link;            // dnc_server.text_inputs
     struct dnc_server *server;
+    bool v1;                        // zwp_text_input_v1, else v3
     bool entered;                   // enter sent for the focused surface
     bool pending_enabled, enabled;
-    uint32_t commits;               // serial for done
+    uint32_t commits;               // v3: serial for done; v1: last commit_state
 };
 
 static struct dnc_toplevel *focused_toplevel(struct dnc_server *srv)
@@ -64,6 +71,13 @@ void dnc_text_input_focus(struct dnc_server *srv, struct dnc_surface *old,
     struct text_input *ti;
     wl_list_for_each(ti, &srv->text_inputs, link) {
         struct wl_client *client = wl_resource_get_client(ti->resource);
+        if (ti->v1) {
+            // Clients activate again when one of their fields takes focus
+            if (ti->entered)
+                zwp_text_input_v1_send_leave(ti->resource);
+            ti->entered = ti->enabled = false;
+            continue;
+        }
         if (ti->entered && old) {
             zwp_text_input_v3_send_leave(ti->resource, old->resource);
             ti->entered = false;
@@ -103,6 +117,11 @@ bool dnc_text_input_commit(struct dnc_server *srv, const char *text)
     struct text_input *ti = active_input(srv);
     if (!ti)
         return false;
+    if (ti->v1) {
+        zwp_text_input_v1_send_preedit_string(ti->resource, ti->commits, "", "");
+        zwp_text_input_v1_send_commit_string(ti->resource, ti->commits, text);
+        return true;
+    }
     zwp_text_input_v3_send_preedit_string(ti->resource, NULL, 0, 0);
     zwp_text_input_v3_send_commit_string(ti->resource, text);
     zwp_text_input_v3_send_done(ti->resource, ti->commits);
@@ -115,6 +134,11 @@ bool dnc_text_input_preedit(struct dnc_server *srv, const char *text)
     if (!ti)
         return false;
     int32_t len = (int32_t)strlen(text);
+    if (ti->v1) {
+        zwp_text_input_v1_send_preedit_cursor(ti->resource, len);
+        zwp_text_input_v1_send_preedit_string(ti->resource, ti->commits, text, text);
+        return true;
+    }
     zwp_text_input_v3_send_preedit_string(ti->resource, len ? text : NULL, len, len);
     zwp_text_input_v3_send_done(ti->resource, ti->commits);
     return true;
@@ -252,9 +276,128 @@ static void bind_manager(struct wl_client *c, void *data, uint32_t version,
     wl_resource_set_implementation(r, &manager_impl, data, NULL);
 }
 
+/* zwp_text_input_v1 */
+
+static void v1_activate(struct wl_client *c, struct wl_resource *r,
+                        struct wl_resource *seat, struct wl_resource *surface)
+{
+    (void)seat;
+    struct text_input *ti = wl_resource_get_user_data(r);
+    struct dnc_server *srv = ti->server;
+    struct dnc_surface *focus = srv->seat.keyboard_focus;
+    // Only the surface with keyboard focus may take text (as Weston)
+    if (!focus || focus->resource != surface || wl_resource_get_client(surface) != c)
+        return;
+    if (!ti->entered)
+        zwp_text_input_v1_send_enter(ti->resource, surface);
+    ti->entered = ti->enabled = true;
+    notify_host(srv);
+}
+
+static void v1_deactivate(struct wl_client *c, struct wl_resource *r,
+                          struct wl_resource *seat)
+{
+    (void)c; (void)seat;
+    struct text_input *ti = wl_resource_get_user_data(r);
+    if (ti->entered)
+        zwp_text_input_v1_send_leave(ti->resource);
+    ti->entered = ti->enabled = false;
+    notify_host(ti->server);
+}
+
+static void v1_ignore(struct wl_client *c, struct wl_resource *r)
+{
+    (void)c; (void)r;
+}
+
+static void v1_set_surrounding_text(struct wl_client *c, struct wl_resource *r,
+                                    const char *text, uint32_t cursor, uint32_t anchor)
+{
+    (void)c; (void)r; (void)text; (void)cursor; (void)anchor;
+}
+
+static void v1_set_content_type(struct wl_client *c, struct wl_resource *r,
+                                uint32_t hint, uint32_t purpose)
+{
+    (void)c; (void)r; (void)hint; (void)purpose;
+}
+
+static void v1_set_preferred_language(struct wl_client *c, struct wl_resource *r,
+                                      const char *language)
+{
+    (void)c; (void)r; (void)language;
+}
+
+static void v1_commit_state(struct wl_client *c, struct wl_resource *r, uint32_t serial)
+{
+    (void)c;
+    struct text_input *ti = wl_resource_get_user_data(r);
+    ti->commits = serial;
+}
+
+static void v1_invoke_action(struct wl_client *c, struct wl_resource *r,
+                             uint32_t button, uint32_t index)
+{
+    (void)c; (void)r; (void)button; (void)index;
+}
+
+static const struct zwp_text_input_v1_interface text_input_v1_impl = {
+    .activate = v1_activate,
+    .deactivate = v1_deactivate,
+    .show_input_panel = v1_ignore,
+    .hide_input_panel = v1_ignore,
+    .reset = v1_ignore,
+    .set_surrounding_text = v1_set_surrounding_text,
+    .set_content_type = v1_set_content_type,
+    .set_cursor_rectangle = ti_set_cursor_rectangle,
+    .set_preferred_language = v1_set_preferred_language,
+    .commit_state = v1_commit_state,
+    .invoke_action = v1_invoke_action,
+};
+
+static void manager_v1_create_text_input(struct wl_client *c, struct wl_resource *r,
+                                         uint32_t id)
+{
+    struct dnc_server *srv = wl_resource_get_user_data(r);
+    struct text_input *ti = calloc(1, sizeof(*ti));
+    if (!ti) {
+        wl_client_post_no_memory(c);
+        return;
+    }
+    ti->resource = wl_resource_create(c, &zwp_text_input_v1_interface, 1, id);
+    if (!ti->resource) {
+        free(ti);
+        wl_client_post_no_memory(c);
+        return;
+    }
+    ti->server = srv;
+    ti->v1 = true;
+    wl_list_insert(&srv->text_inputs, &ti->link);
+    wl_resource_set_implementation(ti->resource, &text_input_v1_impl, ti,
+                                   ti_resource_destroy);
+}
+
+static const struct zwp_text_input_manager_v1_interface manager_v1_impl = {
+    .create_text_input = manager_v1_create_text_input,
+};
+
+static void bind_manager_v1(struct wl_client *c, void *data, uint32_t version,
+                            uint32_t id)
+{
+    struct wl_resource *r = wl_resource_create(
+        c, &zwp_text_input_manager_v1_interface, (int)version, id);
+    if (!r) {
+        wl_client_post_no_memory(c);
+        return;
+    }
+    wl_resource_set_implementation(r, &manager_v1_impl, data, NULL);
+}
+
 bool dnc_text_input_init(struct dnc_server *srv)
 {
     wl_list_init(&srv->text_inputs);
     return wl_global_create(srv->display, &zwp_text_input_manager_v3_interface,
-                            TEXT_INPUT_VERSION, srv, bind_manager) != NULL;
+                            TEXT_INPUT_VERSION, srv, bind_manager) != NULL &&
+           wl_global_create(srv->display, &zwp_text_input_manager_v1_interface,
+                            1, srv, bind_manager_v1) != NULL;
 }

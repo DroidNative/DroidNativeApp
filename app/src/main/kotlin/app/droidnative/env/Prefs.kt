@@ -52,6 +52,14 @@ class Prefs(context: Context) {
     fun isEnabled(p: Passthrough): Boolean = sp.getBoolean(p.key, false)
     fun setEnabled(p: Passthrough, enabled: Boolean) = sp.edit().putBoolean(p.key, enabled).apply()
 
+    /**
+     * Where presets come from ([app.droidnative.apps.Presets]): a GitHub
+     * repository address or a .tar.gz archive.
+     */
+    var presetSource: String
+        get() = sp.getString("preset_source", null) ?: DEFAULT_PRESET_SOURCE
+        set(v) = sp.edit().putString("preset_source", v.trim().ifEmpty { DEFAULT_PRESET_SOURCE }).apply()
+
     /** Bind Android storage into the guest (needs the all-files permission). */
     var storageAccess: Boolean
         get() = sp.getBoolean("storage_access", false)
@@ -66,6 +74,7 @@ class Prefs(context: Context) {
         set(v) = sp.edit().putInt("audio_buffer_ms", v).apply()
 
     companion object {
+        const val DEFAULT_PRESET_SOURCE = "https://github.com/DroidNative/DroidNativePresets"
         val AUDIO_BUFFERS = listOf(50, 100, 150, 250, 400)
         // Measured gap-free with SuperTux 2 on GPU and software rendering
         const val DEFAULT_AUDIO_BUFFER = 150

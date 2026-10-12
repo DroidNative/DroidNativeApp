@@ -7,20 +7,15 @@ ARCH="$1"
 log() { echo "[setup] $*"; }
 
 # Base packages: graphics stack, test tools, Flatpak prerequisites, and the
-# default applications (terminal, file manager, archiver, text editor,
-# camera, music player, audio editor, video player; librsvg-utils renders
-# their SVG icons for the overview, qt5-wayland lets SMPlayer use Wayland)
+# default applications (terminal, file manager, text editor; more come from
+# the Install tab). librsvg-utils renders SVG icons for the overview.
 PKGS="vulkan-loader mesa-dri mesa-vulkan-lavapipe Vulkan-Tools mesa-demos
  libxkbcommon-tools xkeyboard-config wayland dbus bubblewrap ca-certificates
  fontconfig dejavu-fonts-ttf noto-fonts-ttf noto-fonts-emoji liberation-fonts-ttf
  cantarell-fonts adwaita-icon-theme hicolor-icon-theme glmark2 squashfs-tools
  pulseaudio pulseaudio-utils alsa-plugins-pulseaudio
- xfce4-terminal Thunar file-roller mousepad librsvg-utils v4l-utils
- cheese rhythmbox audacity smplayer mpv qt5-wayland
- gst-plugins-good1 gst-plugins-bad1 gst-plugins-ugly1 gst-libav
+ xfce4-terminal Thunar mousepad librsvg-utils v4l-utils
  bash bash-completion sudo qt6-wayland xorg-server-xwayland font-misc-misc"
-# Required: setup fails without them (OctoXBPS drives the Install tab)
-REQUIRED="octoxbps"
 case "$ARCH" in
     aarch64) PKGS="$PKGS mesa-turnip-kgsl droidnative-tools gl4es flatpak droidnative-flatpak-gl" ;;
     x86_64) PKGS="$PKGS droidnative-tools gl4es flatpak" ;;
@@ -32,7 +27,6 @@ missing() {
         xbps-query "$p" >/dev/null 2>&1 || echo "$p"
     done
 }
-MISSING_REQUIRED=$(missing $REQUIRED)
 MISSING=$(missing $PKGS)
 MOVES=""
 for d in .local/share/flatpak .var .local/share/droidnative .local/share/applications \
@@ -44,7 +38,7 @@ done
 
 # Progress for the app (env/EnvController.kt): "[setup-steps] N" announces
 # the steps, each "[setup]" line starts one, "[setup-end]" ends the last
-set -- $MISSING_REQUIRED $MISSING $MOVES
+set -- $MISSING $MOVES
 steps=$((4 + $#))
 id user >/dev/null 2>&1 || steps=$((steps + 1))
 echo "[setup-steps] $steps"
@@ -53,10 +47,6 @@ log "updating xbps"
 xbps-install -Sy xbps
 log "updating base system"
 xbps-install -uy
-for p in $MISSING_REQUIRED; do
-    log "installing $p (required)"
-    xbps-install -y "$p"
-done
 for p in $MISSING; do
     if xbps-query "$p" >/dev/null 2>&1; then
         log "$p already installed as a dependency"

@@ -5,10 +5,10 @@ a phone over adb.
 
 | Layer | Command | What it covers |
 |---|---|---|
-| JVM unit tests | `./gradlew testPlayDebugUnitTest` | tar extraction (GNU/pax, links), checksum list parsing |
+| JVM unit tests | `./gradlew testPlayDebugUnitTest` | tar extraction (GNU/pax, links), checksum list parsing, preset settings.ini |
 | Host compositor | `tests/host/compositor/run.sh` | Wayland protocol handling of the compositor core (null renderer, ASan/UBSan) with `dn-wltest` and `weston-simple-shm` |
 | Host camera emulation | `tests/host/v4l2/run.sh` | PRoot's V4L2 device emulation against a fake camera, `v4l2-ctl` as client (needs the PC proot build in `.cache/hostproot`) |
-| Host per-app environment | `tests/host/appenv/run.sh` | `libdn-appenv` and dn-gl: which child programs keep an application's settings (PC guest of `.cache/hostproot`) |
+| Host per-app environment | `tests/host/appenv/run.sh` | `libdn-appenv` and dn-gl: which child programs keep an application's settings, `--no-sandbox` for Chromium based programs (PC guest of `.cache/hostproot`) |
 | Host notifications | `tests/host/notify/run.sh` | dn-notifyd: notifications (actions, hints, expiry, dismiss) and an MPRIS player relayed over the bridge socket; private bus in the PC guest (needs glib-devel, json-glib-devel, python3-gobject there) |
 | Host guest chroot | `tests/host/guest/chroot.sh <rootfs> <rundir> <cmd>` | runs guest scripts (`setup.sh`) in a Void rootfs on the PC |
 | Device suite | `tests/device/run.sh` | everything on real hardware, see below |
@@ -65,7 +65,7 @@ Please send back the whole results directory after a run.
 | T05CompositorTest | compositor with `dn-wltest`: wl_shm and dmabuf paths, a real window plus screenshot, hidden-window throttling |
 | T06VulkanWaylandTest | `vkcube` on Wayland: dmabuf (Turnip) path, `MESA_VK_WSI_DEBUG=sw` fallback, run without the present wait patch |
 | T07ZinkWaylandTest | GL through the `dn-gl` backends: Zink (GLES and desktop GL), gl4es, llvmpipe |
-| T08AppImageTest | `dn-appimage`: install, desktop entry, run, remove (downloads appimagetool) |
+| T08AppImageTest | `dn-appimage`: install, desktop entry, run, own title, remove (downloads appimagetool) |
 | T09FlatpakTest | Flathub remote, install of a small app plus runtime (several hundred MB on first run), run in the bubblewrap sandbox, GLES app from the sandbox in a real window (accelerated through the DroidNative GL extension on KGSL devices) |
 | T10AudioTest | PulseAudio in the guest, a 440 Hz tone reaching Android's AudioTrack (audible, 2 s each from the guest and from a Flatpak sandbox), D-Bus session bus |
 | T11DevicesTest | device passthrough (docs/device-passthrough.md): camera via V4L2, sensors via IIO sysfs, location via `/dev/gps0`, microphone via PulseAudio; brings the app to the foreground (Android blocks camera and microphone in the background) |
@@ -87,12 +87,15 @@ A failing test is still useful: the logs say how far the stack got.
 clients need the compositor, which runs inside the app: open the app once
 (`adb shell am start -n app.droidnative/.MainActivity`) and press Start on
 the Overview tab so the environment service runs. Windows do not open from there (background start), but
-clients run and get frame callbacks. Examples:
+clients run and get frame callbacks. It runs as the emulated root;
+`DN_USER=1` runs as the guest user instead, as the app starts programs
+(needed for Chromium and Electron, which refuse root). Examples:
 
 ```
 tests/device/guest-sh.sh 'vulkaninfo --summary'
 tests/device/guest-sh.sh 'dn-gl zink eglinfo -B -p wayland'
 tests/device/guest-sh.sh 'gdb -q -batch -ex run -ex bt --args vkcube --wsi wayland --c 50'
+DN_USER=1 tests/device/guest-sh.sh 'dn-appimage list'
 ```
 
 `tests/device/app-sh.sh [-d] '<command>'` does the same from inside the real app

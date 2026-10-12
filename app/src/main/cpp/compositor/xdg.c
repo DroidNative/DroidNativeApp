@@ -1,5 +1,6 @@
 /* xdg-shell: xdg_wm_base, xdg_positioner, xdg_surface, xdg_toplevel, xdg_popup */
 #define _GNU_SOURCE
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -194,6 +195,14 @@ void dnc_toplevel_configure(struct dnc_toplevel *tl)
     }
     int32_t w = tl->window && !fixed ? tl->configured_w : 0;
     int32_t h = tl->window && !fixed ? tl->configured_h : 0;
+    // A minimum size beyond the window (Opera: 660 px wide on a 540 px
+    // phone): offer the window's aspect ratio scaled up to it, so the zoom
+    // fills the window instead of leaving bars
+    if (w > 0 && h > 0 && (tl->min_w > w || tl->min_h > h)) {
+        double f = fmax((double)tl->min_w / w, (double)tl->min_h / h);
+        w = (int32_t)ceil(w * f);
+        h = (int32_t)ceil(h * f);
+    }
     xdg_toplevel_send_configure(tl->xdg->role_resource, w, h, &states);
     wl_array_release(&states);
     tl->xdg->last_serial = next_serial(tl->server);
@@ -292,8 +301,12 @@ static void toplevel_set_min_size(struct wl_client *c, struct wl_resource *r,
     struct dnc_toplevel *tl = wl_resource_get_user_data(r);
     if (!tl)
         return;
+    bool changed = tl->min_w != w || tl->min_h != h;
     tl->min_w = w;
     tl->min_h = h;
+    // The configured size may now be too small for it
+    if (changed && tl->window && (w > tl->configured_w || h > tl->configured_h))
+        dnc_toplevel_configure(tl);
 }
 
 static void toplevel_state_req(struct wl_client *c, struct wl_resource *r)

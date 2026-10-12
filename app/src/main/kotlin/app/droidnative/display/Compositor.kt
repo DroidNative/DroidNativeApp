@@ -2,6 +2,7 @@ package app.droidnative.display
 
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import android.view.Surface
 import java.util.concurrent.ConcurrentHashMap
@@ -118,6 +119,10 @@ class Compositor {
 
     /** Toplevels that currently have an Android window (WindowActivity). */
     val hosted: MutableSet<Int> = ConcurrentHashMap.newKeySet()
+
+    /** When the user last closed a window from recents (elapsedRealtime). */
+    @Volatile var lastHostClose = 0L
+        private set
     private val main = Handler(Looper.getMainLooper())
 
     /**
@@ -126,6 +131,7 @@ class Compositor {
      * of its windows (a "save changes?" dialog, say) is open on screen.
      */
     fun closeFromHost(id: Int) {
+        lastHostClose = SystemClock.elapsedRealtime()
         val pid = toplevels[id]?.pid ?: 0
         close(id)
         main.postDelayed({

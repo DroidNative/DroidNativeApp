@@ -34,7 +34,7 @@ DroidNative is in active development. It is tested on a Redmi Note 8T
     <td><img src="docs/screenshots/settings.png" width="260" alt="Settings: device access and display"></td>
   </tr>
   <tr>
-    <td><img src="docs/screenshots/octoxbps.png" width="260" alt="OctoXBPS package manager"></td>
+    <td><img src="docs/screenshots/packages.png" width="260" alt="Native package manager"></td>
     <td><img src="docs/screenshots/terminal.png" width="260" alt="Xfce Terminal with the on-screen keyboard, Vulkan and OpenGL on the Adreno GPU"></td>
     <td></td>
   </tr>
@@ -43,7 +43,7 @@ DroidNative is in active development. It is tested on a Redmi Note 8T
   </tr>
 </table>
 
-Overview, Install, Settings, OctoXBPS, Xfce Terminal and Rhythmbox, taken on
+Overview, Install, Settings, native packages, Xfce Terminal and Rhythmbox, taken on
 the phone.
 
 ## Using DroidNative
@@ -85,8 +85,16 @@ the phone.
 - **Keyboards and mice:** a USB or Bluetooth keyboard and mouse work as on
   a computer. Linux uses the keyboard layout set in Android (for example
   QWERTZ), including AltGr characters and accents.
-- **Install more software:** on the **Install** tab, tap **Install Native
-  (xbps) Package**. OctoXBPS opens; search, tick and apply.
+- **Install more software:** on the **Install** tab, tap **Manage Native
+  (xbps) Packages**: search by name, description or file, install and
+  remove, refresh the sources and update everything; "Show output"
+  follows what xbps does. **Manage
+  AppImages** below it installs AppImage files from the phone's storage
+  and lets you rename, change the icon of or remove them. **Manage
+  Flatpaks** is a store for Flathub and other sources: search, install,
+  update and remove apps, and add or remove sources. Apps with a preset
+  in [DroidNativePresets](https://github.com/DroidNative/DroidNativePresets)
+  get suitable settings and on-screen buttons when they are installed.
 - **Typing:** the keyboard opens by itself when a text field is active.
 - **Terminal:** Xfce Terminal is preinstalled. You are the user `user`;
   `sudo` works without a password.
@@ -226,7 +234,6 @@ The core components DroidNative builds on, with their sources:
 | D-Bus | session bus | https://www.freedesktop.org/wiki/Software/dbus/ | AFL-2.1 or GPL-2.0 |
 | Flatpak | Flatpak applications | https://flatpak.org | LGPL-2.1 |
 | bubblewrap | Flatpak sandbox | https://github.com/containers/bubblewrap | LGPL-2.0 |
-| OctoXBPS | package manager UI of the Install tab | https://github.com/aarnt/octoxbps | GPL-2.0 |
 | Kotlin | app language | https://kotlinlang.org | Apache-2.0 |
 | AndroidX, Jetpack Compose | app UI | https://developer.android.com/jetpack | Apache-2.0 |
 | XZ for Java | unpacking the Linux system | https://tukaani.org/xz/java.html | 0BSD |

@@ -1,9 +1,14 @@
 package app.droidnative
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
 import android.util.Log
@@ -61,7 +66,9 @@ import kotlinx.coroutines.delay
  * Install tab and home screen shortcuts (droidnative://app/<id>); Android
  * lets the service open a window only while one of the app's activities
  * is visible. If the program exits with an error before a window appears,
- * the screen shows its log, which can be saved to a file.
+ * the screen shows its log, which can be saved to a file. If it ends
+ * abnormally later (error code, killed, crashed), a notification says why
+ * and opens the same screen ([EXTRA_ENDED]) without starting it again.
  */
 class LaunchActivity : ComponentActivity(), Compositor.Listener {
 
@@ -91,6 +98,11 @@ class LaunchActivity : ComponentActivity(), Compositor.Listener {
         entry = found
         icon = apps.icon(found)
         setContent { DroidNativeTheme { Screen(found) } }
+        // From the "stopped" notification: only the report
+        intent.getStringExtra(EXTRA_ENDED)?.let {
+            failure = Failure(it, readTail(apps.logFile(found)))
+            return
+        }
         EnvService.compositor.addListener(this)
         // Recreated (rotation): the launch is already running or failed
         if (savedInstanceState == null) Thread({ start(found) }, "dn-launch").start()
@@ -161,9 +173,12 @@ class LaunchActivity : ComponentActivity(), Compositor.Listener {
         }
         val code = proc.waitFor()
         Log.i(TAG, "${e.id} exited with $code (window: $done)")
-        if (done) return
+        if (done) {
+            if (code != 0) reportEnded(applicationContext, e, code)
+            return
+        }
         if (code != 0) {
-            fail(getString(R.string.launch_exited, e.name, code), log)
+            fail(if (code > 128) endReason(this, e, code) else getString(R.string.launch_exited, e.name, code), log)
             return
         }
         // Exit 0 without a window: usually handed over to a running instance,
@@ -204,6 +219,60 @@ class LaunchActivity : ComponentActivity(), Compositor.Listener {
         private const val SLOW_MS = 15_000L
         private const val HANDOVER_MS = 5_000L
         private const val LOG_TAIL = 64 * 1024
+
+        /** Message of the "stopped" notification, shown instead of starting. */
+        const val EXTRA_ENDED = "app.droidnative.extra.ENDED"
+        private const val ENDED_CHANNEL = "app_ended"
+        private const val ENDED_NOTIFICATION_BASE = 0x3000
+        // A swipe from recents may end the program on purpose (Compositor)
+        private const val HOST_CLOSE_MS = 10_000L
+        private const val STOP_SETTLE_MS = 2_000L
+
+        /** Why a program ended; [code] as proot reports it (128 + signal when killed). */
+        fun endReason(context: Context, e: DesktopEntry, code: Int): String = when (code - 128) {
+            9 -> context.getString(R.string.app_ended_killed, e.name)
+            11 -> context.getString(R.string.app_ended_segv, e.name)
+            6 -> context.getString(R.string.app_ended_abort, e.name)
+            5 -> context.getString(R.string.app_ended_trap, e.name)
+            else -> if (code > 128) context.getString(R.string.app_ended_signal, e.name, code - 128)
+                    else context.getString(R.string.app_ended_code, e.name, code)
+        }
+
+        /**
+         * A program ended abnormally after its window was shown: tell the
+         * user why instead of letting the window vanish. Ends the user caused
+         * (closed from recents, environment stopped, SIGTERM) are not reported.
+         */
+        private fun reportEnded(context: Context, e: DesktopEntry, code: Int) {
+            if (code == 128 + 15) return
+            if (SystemClock.elapsedRealtime() - EnvService.compositor.lastHostClose < HOST_CLOSE_MS) return
+            SystemClock.sleep(STOP_SETTLE_MS)
+            if (!EnvService.isRunning) return
+            val message = endReason(context, e, code)
+            Log.w(TAG, message)
+            val nm = context.getSystemService(NotificationManager::class.java)
+            if (Build.VERSION.SDK_INT >= 26) nm.createNotificationChannel(NotificationChannel(
+                ENDED_CHANNEL, context.getString(R.string.channel_app_ended), NotificationManager.IMPORTANCE_DEFAULT))
+            val intent = Intent(Intent.ACTION_VIEW, Shortcuts.uri(e), context, LaunchActivity::class.java)
+                .putExtra(EXTRA_ENDED, message)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                (if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0)
+            val id = ENDED_NOTIFICATION_BASE + (e.id.hashCode() and 0xfff)
+            val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(context, ENDED_CHANNEL)
+                          else @Suppress("DEPRECATION") Notification.Builder(context)
+            nm.notify(id, builder
+                .setSmallIcon(R.drawable.ic_penguin)
+                .setContentTitle(context.getString(R.string.app_ended_title, e.name))
+                .setContentText(message)
+                .setStyle(Notification.BigTextStyle().bigText(message + "\n" +
+                    context.getString(R.string.app_ended_tap)))
+                .setContentIntent(PendingIntent.getActivity(context, id, intent, flags))
+                // Own group: Android would bundle it with the service notice
+                .setGroup(ENDED_CHANNEL)
+                .setAutoCancel(true)
+                .build())
+        }
 
         /** Opens the loading screen, which starts [entry]. */
         fun start(context: Context, entry: DesktopEntry) {

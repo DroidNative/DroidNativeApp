@@ -1,0 +1,24 @@
+proot: the binding that becomes the new root in pivot_root moves to "/"
+instead of staying below put_old, where it hid the old /tmp from
+bubblewrap (Flatpak apps could not get the X11 socket).
+
+--- a/src/syscall/enter.c	2026-10-12 20:08:21.008694313 +0200
++++ b/src/syscall/enter.c	2026-10-12 20:08:21.031459344 +0200
+@@ -654,6 +654,17 @@
+ 
+ 		blen = strlen(b->guest.path);
+ 
++		/* The mount that becomes the new root moves to "/" with the
++		 * pivot, as in the kernel: it must not stay over its old place
++		 * below put_old, where it would hide what is underneath.
++		 * bubblewrap mounts a tmpfs over /tmp, pivots into it and then
++		 * opens bind sources such as the X11 socket through
++		 * /oldroot/tmp.  */
++		if (strcmp(b->guest.path, new_root_guest) == 0) {
++			remove_binding_from_all_lists(tracee, b);
++			continue;
++		}
++
+ 		/* Bindings that live under the new root move *with* the pivot:
+ 		 * "/newroot/usr" becomes "/usr".  Without this, the tracee's
+ 		 * own bind mounts (e.g. bubblewrap's "--ro-bind /usr /usr"

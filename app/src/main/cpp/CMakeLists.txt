@@ -20,7 +20,7 @@ set(GEN ${CMAKE_CURRENT_BINARY_DIR}/gen)
 file(MAKE_DIRECTORY ${GEN})
 set(GEN_SRC "")
 foreach(p xdg-shell linux-dmabuf-unstable-v1 xdg-decoration-unstable-v1
-          text-input-unstable-v3 xwayland-shell-v1
+          text-input-unstable-v1 text-input-unstable-v3 xwayland-shell-v1
           pointer-constraints-unstable-v1 relative-pointer-unstable-v1)
     add_custom_command(
         OUTPUT ${GEN}/${p}-server-protocol.h ${GEN}/${p}-protocol.c

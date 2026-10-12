@@ -1,8 +1,8 @@
 # Template file for 'droidnative-tools'
 # Guest-side helpers and test clients of DroidNative.
 pkgname=droidnative-tools
-version=0.1.8
-revision=3
+version=0.1.9
+revision=7
 hostmakedepends="pkg-config wayland-devel"
 makedepends="wayland-devel wayland-protocols libxcb-devel glib-devel json-glib-devel"
 short_desc="DroidNative guest helpers and test clients"

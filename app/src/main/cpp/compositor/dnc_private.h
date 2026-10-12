@@ -131,6 +131,7 @@ struct dnc_toplevel {
     int32_t configured_w, configured_h;  // logical
     bool activated;
     bool fullscreen;                     // client asked for fullscreen
+    double logged_zoom;                  // last zoom reported in the log
     int32_t min_w, min_h, max_w, max_h;  // logical, 0 unset
     struct dnc_stats stats;              // guarded by server->stats_lock
 };
@@ -256,7 +257,7 @@ void dnc_xwayland_kill(struct dnc_toplevel *tl);
 // Host pid of the X client owning the toplevel (_NET_WM_PID), 0 if unknown
 int32_t dnc_xwayland_pid(const struct dnc_xwl_window *win);
 
-/* Text input (zwp_text_input_v3) */
+/* Text input (zwp_text_input_v1 and v3) */
 
 // Keyboard focus moved from old to new (either may be NULL).
 void dnc_text_input_focus(struct dnc_server *srv, struct dnc_surface *old,

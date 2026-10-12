@@ -1,5 +1,15 @@
 package app.droidnative.ui
 
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import app.droidnative.apps.Presets
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.foundation.text.KeyboardActions
+import android.widget.Toast
 import android.Manifest
 import android.annotation.SuppressLint
 import android.os.PowerManager
@@ -91,6 +101,10 @@ fun SettingsScreen() {
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         SectionTitle(R.string.settings_storage)
         StorageRow(resumed)
+
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        SectionTitle(R.string.settings_presets)
+        PresetSettings()
 
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         Hint(R.string.settings_restart_hint)
@@ -300,6 +314,53 @@ private fun SoundSettings() {
             })
         Text(stringResource(R.string.audio_buffer_hint), style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/** Preset source (apps/Presets.kt): address, check and apply. */
+@Composable
+private fun PresetSettings() {
+    val context = LocalContext.current
+    val prefs = remember { Prefs(context) }
+    val scope = rememberCoroutineScope()
+    var source by remember { mutableStateOf(prefs.presetSource) }
+    var working by remember { mutableStateOf(false) }
+    fun save() {
+        prefs.presetSource = source
+        source = prefs.presetSource
+    }
+    fun background(action: () -> String) {
+        save()
+        working = true
+        scope.launch {
+            val message = withContext(Dispatchers.IO) { action() }
+            working = false
+            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+        }
+    }
+    Column(FormPadding, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedTextField(source, { source = it.trim() }, Modifier.fillMaxWidth(), singleLine = true,
+            label = { Text(stringResource(R.string.presets_source)) },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { save() }))
+        Text(stringResource(R.string.presets_hint), style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedButton({ background {
+                Presets.refresh(context, force = true)?.let { context.getString(R.string.presets_failed, it) }
+                    ?: context.getString(R.string.presets_current)
+            } }, enabled = !working) { Text(stringResource(R.string.presets_check)) }
+            OutlinedButton({ background {
+                val done = Presets.applyInstalled(context)
+                if (done.isEmpty()) context.getString(R.string.presets_none_applied)
+                else context.getString(R.string.presets_applied_text, done.joinToString(", "))
+            } }, enabled = !working) { Text(stringResource(R.string.presets_apply)) }
+        }
+        if (source != Prefs.DEFAULT_PRESET_SOURCE) TextButton({
+            source = Prefs.DEFAULT_PRESET_SOURCE
+            save()
+        }, enabled = !working) { Text(stringResource(R.string.presets_default)) }
+        if (working) LinearProgressIndicator(Modifier.fillMaxWidth())
     }
 }
 

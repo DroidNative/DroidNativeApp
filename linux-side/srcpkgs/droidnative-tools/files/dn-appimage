@@ -2,17 +2,23 @@
 # dn-appimage: AppImage support without FUSE (unprivileged Android apps
 # cannot mount). An AppImage is unpacked once and started through its AppRun.
 #
-# Usage: dn-appimage install <file.AppImage>   unpack and register
-#        dn-appimage list                      id<TAB>name<TAB>directory
-#        dn-appimage remove <id>               unregister and delete
-#        dn-appimage run <id> [args...]        start it (same as the .desktop)
+# Usage: dn-appimage install [--move] <file>   unpack and register (--move:
+#                                             the file is consumed)
+#        dn-appimage list                    id<TAB>name<TAB>directory<TAB>icon
+#        dn-appimage rename <id> [name]      own title, none: the AppImage's
+#        dn-appimage icon <id> [file]        own icon, none: the AppImage's
+#        dn-appimage remove <id>             unregister and delete
+#        dn-appimage run <id> [args...]      start it (same as the .desktop)
 #
 # Layout: $XDG_DATA_HOME/droidnative/appimages/<id>/   unpacked AppDir
+#         $XDG_DATA_HOME/droidnative/appimages/.custom/<id>.name, <id>.<ext>
 #         $XDG_DATA_HOME/applications/dn-appimage-<id>.desktop
+# Own titles and icons survive a reinstall of the same id.
 set -eu
 
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}"
 STORE="$DATA/droidnative/appimages"
+CUSTOM="$STORE/.custom"
 APPS="$DATA/applications"
 
 die() { echo "dn-appimage: $*" >&2; exit 1; }
@@ -38,6 +44,22 @@ host_arch() {
     esac
 }
 
+# Little-endian unsigned integer of $3 bytes at offset $2 of file $1
+read_uint() {
+    od -An -tu1 -j"$2" -N"$3" "$1" | awk '{ for (i = NF; i >= 1; i--) v = v * 256 + $i } END { print v }'
+}
+
+# The squashfs payload starts after the runtime's ELF section headers
+payload_offset() {
+    case "$(od -An -tu1 -j4 -N1 "$1" | tr -d ' ')" in
+        2) shoff="$(read_uint "$1" 40 8)"; size="$(read_uint "$1" 58 2)"; num="$(read_uint "$1" 60 2)" ;;
+        1) shoff="$(read_uint "$1" 32 4)"; size="$(read_uint "$1" 46 2)"; num="$(read_uint "$1" 48 2)" ;;
+        *) return 0 ;;
+    esac
+    off=$((shoff + size * num))
+    [ "$(od -An -c -j"$off" -N4 "$1" | tr -d ' ')" = hsqs ] && echo "$off"
+}
+
 # id from the file name: lower case, [a-z0-9._-] only, no version suffix noise
 make_id() {
     basename "$1" | sed -e 's/\.[Aa]pp[Ii]mage$//' | tr 'A-Z' 'a-z' |
@@ -59,42 +81,23 @@ desktop_value() {   # file key
     sed -n "/^\[Desktop Entry\]/,/^\[/{s/^$2=//p}" "$1" | head -n 1
 }
 
-cmd_install() {
-    [ $# -eq 1 ] || die "usage: dn-appimage install <file.AppImage>"
-    src="$1"
-    [ -f "$src" ] || die "no such file: $src"
-    arch="$(elf_arch "$src")"
-    [ "$arch" = "$(host_arch)" ] ||
-        die "$src is built for $arch, this environment is $(host_arch)"
+check_id() {
+    case "$1" in
+        ''|*/*|.*) die "bad id '$1'" ;;
+    esac
+    [ -e "$STORE/$1/AppRun" ] || die "not installed: $1"
+}
 
-    id="$(make_id "$src")"
-    [ -n "$id" ] || die "cannot derive an id from $src"
-    mkdir -p "$STORE" "$APPS"
-    work="$STORE/.unpack-$id.$$"
-    mkdir "$work"
-    cp "$src" "$work/app.AppImage"
-    chmod 755 "$work/app.AppImage"
+custom_icon() {   # id -> path of its own icon, if any
+    for f in "$CUSTOM/$1".png "$CUSTOM/$1".svg "$CUSTOM/$1".xpm "$CUSTOM/$1".jpg; do
+        if [ -e "$f" ]; then echo "$f"; return; fi
+    done
+}
 
-    # Type 2 runtimes unpack themselves; fall back to unsquashfs at the
-    # payload offset for runtimes that refuse.
-    if ! (cd "$work" && ./app.AppImage --appimage-extract >/dev/null 2>&1) ||
-       [ ! -d "$work/squashfs-root" ]; then
-        command -v unsquashfs >/dev/null ||
-            die "self-extraction failed and unsquashfs is not installed"
-        off="$(cd "$work" && ./app.AppImage --appimage-offset 2>/dev/null || true)"
-        [ -n "$off" ] || die "cannot find the squashfs payload in $src"
-        (cd "$work" && unsquashfs -q -o "$off" -d squashfs-root app.AppImage >/dev/null) ||
-            die "unsquashfs failed"
-    fi
-    [ -e "$work/squashfs-root/AppRun" ] || die "no AppRun in $src"
-
-    remove_tree "$id"
-    mv "$work/squashfs-root" "$STORE/$id"
-    rm -f "$work/app.AppImage"
-    rmdir "$work"
+# Desktop entry from the AppDir's own entry plus the custom title and icon
+write_entry() {   # id
+    id="$1"
     dir="$STORE/$id"
-
-    # Desktop entry shipped in the AppDir root, if any
     entry="$(find "$dir" -maxdepth 1 -name '*.desktop' | head -n 1)"
     name="$id"
     icon=""
@@ -115,7 +118,10 @@ cmd_install() {
             if [ -e "$cand" ]; then iconpath="$cand"; break; fi
         fi
     done
+    if [ -s "$CUSTOM/$id.name" ]; then name="$(head -n 1 "$CUSTOM/$id.name")"; fi
+    v="$(custom_icon "$id")"; [ -z "$v" ] || iconpath="$v"
 
+    mkdir -p "$APPS"
     {
         echo "[Desktop Entry]"
         echo "Type=Application"
@@ -124,8 +130,52 @@ cmd_install() {
         [ -z "$iconpath" ] || echo "Icon=$iconpath"
         printf '%s' "$extra"
         echo "X-DroidNative-AppImage=$id"
-    } > "$APPS/dn-appimage-$id.desktop"
+    } > "$APPS/dn-appimage-$id.desktop.tmp"
+    mv "$APPS/dn-appimage-$id.desktop.tmp" "$APPS/dn-appimage-$id.desktop"
+}
 
+cmd_install() {
+    move=0
+    if [ "${1:-}" = "--move" ]; then move=1; shift; fi
+    [ $# -eq 1 ] || die "usage: dn-appimage install [--move] <file.AppImage>"
+    src="$1"
+    [ -f "$src" ] || die "no such file: $src"
+    arch="$(elf_arch "$src")"
+    [ "$arch" = "$(host_arch)" ] ||
+        die "$src is built for $arch, this environment is $(host_arch)"
+
+    id="$(make_id "$src")"
+    [ -n "$id" ] || die "cannot derive an id from $src"
+    mkdir -p "$STORE" "$APPS"
+    work="$STORE/.unpack-$id.$$"
+    mkdir "$work"
+    # A failed unpack leaves nothing behind
+    trap 'chmod -R u+rwX "$work" 2>/dev/null; rm -r "${STORE:?}/.unpack-$id.$$"' EXIT
+    # Large files: moving saves a copy of the whole image
+    if [ $move = 1 ]; then mv "$src" "$work/app.AppImage"; else cp "$src" "$work/app.AppImage"; fi
+    chmod 755 "$work/app.AppImage"
+
+    # Unpack with unsquashfs at the payload offset: the runtime is not run,
+    # since older ones need libraries the guest may lack (libz.so). Runtimes
+    # unpack themselves as the fallback.
+    off="$(payload_offset "$work/app.AppImage")"
+    if [ -z "$off" ] || ! command -v unsquashfs >/dev/null ||
+       ! (cd "$work" && unsquashfs -q -o "$off" -d squashfs-root app.AppImage >/dev/null 2>&1); then
+        if [ -e "$work/squashfs-root" ]; then
+            chmod -R u+rwX "$work/squashfs-root" 2>/dev/null || true
+            rm -r "${STORE:?}/.unpack-$id.$$/squashfs-root"
+        fi
+        (cd "$work" && ./app.AppImage --appimage-extract >/dev/null 2>&1) ||
+            die "cannot unpack $src (no squashfs payload found)"
+    fi
+    [ -e "$work/squashfs-root/AppRun" ] || die "no AppRun in $src"
+
+    remove_tree "$id"
+    mv "$work/squashfs-root" "$STORE/$id"
+    rm -f "$work/app.AppImage"
+    rmdir "$work"
+    trap - EXIT
+    write_entry "$id"
     echo "$id"
 }
 
@@ -136,16 +186,49 @@ cmd_list() {
         id="$(basename "$dir")"
         name="$id"
         entry="$APPS/dn-appimage-$id.desktop"
-        [ ! -f "$entry" ] || name="$(desktop_value "$entry" Name)"
-        printf '%s\t%s\t%s\n' "$id" "$name" "${dir%/}"
+        icon=""
+        if [ -f "$entry" ]; then
+            name="$(desktop_value "$entry" Name)"
+            icon="$(desktop_value "$entry" Icon)"
+        fi
+        printf '%s\t%s\t%s\t%s\n' "$id" "$name" "${dir%/}" "$icon"
     done
+}
+
+cmd_rename() {
+    [ $# -ge 1 ] && [ $# -le 2 ] || die "usage: dn-appimage rename <id> [name]"
+    check_id "$1"
+    # One line: the title goes into the desktop entry as is
+    name="$(printf '%s' "${2:-}" | tr -d '\r\n')"
+    mkdir -p "$CUSTOM"
+    if [ -n "$name" ]; then printf '%s\n' "$name" > "$CUSTOM/$1.name"; else rm -f "$CUSTOM/$1.name"; fi
+    write_entry "$1"
+}
+
+cmd_icon() {
+    [ $# -ge 1 ] && [ $# -le 2 ] || die "usage: dn-appimage icon <id> [file]"
+    check_id "$1"
+    if [ -n "${2:-}" ]; then
+        [ -f "$2" ] || die "no such file: $2"
+        ext="$(echo "${2##*.}" | tr 'A-Z' 'a-z')"
+        case "$ext" in
+            png|svg|xpm|jpg) ;;
+            jpeg) ext=jpg ;;
+            *) die "icons must be png, svg, xpm or jpg" ;;
+        esac
+    fi
+    mkdir -p "$CUSTOM"
+    rm -f "$CUSTOM/$1".png "$CUSTOM/$1".svg "$CUSTOM/$1".xpm "$CUSTOM/$1".jpg
+    [ -z "${2:-}" ] || cp "$2" "$CUSTOM/$1.$ext"
+    write_entry "$1"
 }
 
 cmd_remove() {
     [ $# -eq 1 ] || die "usage: dn-appimage remove <id>"
     [ -d "$STORE/$1" ] || die "not installed: $1"
     remove_tree "$1"
-    rm -f "$APPS/dn-appimage-$1.desktop"
+    rm -f "$APPS/dn-appimage-$1.desktop" "$CUSTOM/$1".name "$CUSTOM/$1".png "$CUSTOM/$1".svg \
+        "$CUSTOM/$1".xpm "$CUSTOM/$1".jpg
 }
 
 cmd_run() {
@@ -155,14 +238,22 @@ cmd_run() {
     [ -e "$dir/AppRun" ] || die "not installed: $id"
     # What the AppImage runtime would export for the payload
     export APPDIR="$dir" APPIMAGE="$dir/AppRun" OWD="$(pwd)"
+    # Electron: native Wayland with text input (v1) brings up the phone's
+    # keyboard in text fields, which X11 cannot. --no-sandbox comes from
+    # libdn-appenv (/etc/ld.so.preload) as for every Chromium based program.
+    if [ -e "$dir/chrome-sandbox" ]; then
+        set -- --ozone-platform-hint=auto --enable-wayland-ime "$@"
+    fi
     exec "$dir/AppRun" "$@"
 }
 
-[ $# -ge 1 ] || { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[ $# -ge 1 ] || { sed -n '2,16p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 cmd="$1"; shift
 case "$cmd" in
     install) cmd_install "$@" ;;
     list)    cmd_list "$@" ;;
+    rename)  cmd_rename "$@" ;;
+    icon)    cmd_icon "$@" ;;
     remove)  cmd_remove "$@" ;;
     run)     cmd_run "$@" ;;
     *) die "unknown command '$cmd'" ;;

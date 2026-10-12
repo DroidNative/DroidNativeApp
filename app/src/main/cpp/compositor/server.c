@@ -510,6 +510,15 @@ static void repaint_toplevel(struct dnc_server *srv, struct dnc_toplevel *tl)
     int32_t ox = tl->xdg->has_geometry ? -tl->xdg->geo_x : 0;
     int32_t oy = tl->xdg->has_geometry ? -tl->xdg->geo_y : 0;
     struct dnc_view view = dnc_toplevel_view(tl);
+    if (view.zoom != tl->logged_zoom) {
+        // Content that does not fill its window: worth a line when it changes
+        tl->logged_zoom = view.zoom;
+        dnc_log(srv, DNC_LOG_DEBUG, "toplevel %u: window %dx%d, content %dx%d%s, zoom %.3f",
+                tl->id, win->width, win->height,
+                tl->xdg->has_geometry ? tl->xdg->geo_w : dnc_surface_width(root),
+                tl->xdg->has_geometry ? tl->xdg->geo_h : dnc_surface_height(root),
+                tl->xdg->has_geometry ? " (geometry)" : "", view.zoom);
+    }
     draw_surface_tree(srv, &view, root, ox, oy);
 
     struct dnc_popup *popup;

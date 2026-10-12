@@ -1,0 +1,32 @@
+proot: exit with the status of the first tracee (128 + signal when it was
+killed), not of whichever process ended last. DroidNative reports how a
+program ended (LaunchActivity, Proot.run).
+
+diff --git a/src/tracee/event.c b/src/tracee/event.c
+index 6141e19..d59fe1b 100644
+--- a/src/tracee/event.c
++++ b/src/tracee/event.c
+@@ -486,14 +486,21 @@ int handle_tracee_event(Tracee *tracee, int tracee_status)
+ 	signal = 0;
+ 
+ 	if (WIFEXITED(tracee_status)) {
+-		last_exit_status = WEXITSTATUS(tracee_status);
++		/* proot exits like a shell: with the status of the first
++		 * tracee, not of whichever process happened to end last.  */
++		if (tracee->vpid == 1 || last_exit_status == -1)
++			last_exit_status = WEXITSTATUS(tracee_status);
+ 		VERBOSE(tracee, 1,
+ 			"vpid %" PRIu64 ": exited with status %d",
+-			tracee->vpid, last_exit_status);
++			tracee->vpid, WEXITSTATUS(tracee_status));
+ 		terminate_tracee(tracee);
+ 	}
+ 	else if (WIFSIGNALED(tracee_status)) {
+ 		check_architecture(tracee);
++		/* Killed (out of memory, crash): 128 + signal, as a shell
++		 * reports it, instead of a status of another process.  */
++		if (tracee->vpid == 1)
++			last_exit_status = 128 + WTERMSIG(tracee_status);
+ 		VERBOSE(tracee, (int) (tracee->vpid != 1),
+ 			"vpid %" PRIu64 ": terminated with signal %d",
+ 			tracee->vpid, WTERMSIG(tracee_status));
