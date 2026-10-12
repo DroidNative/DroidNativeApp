@@ -59,5 +59,5 @@ exec $LIB/libproot.so ${DN_PROOT_ARGS:-} --kill-on-exit --link2symlink --sysvipc
   --bind=$F/run:/run/droidnative --bind=$F/repo:/opt/droidnative/repo \
   /usr/bin/env -i HOME=/root PATH=/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 \
   TERM=xterm XDG_RUNTIME_DIR=/run/droidnative WAYLAND_DISPLAY=wayland-0 \
-  ${DN_ENV:-} /bin/sh -c $CMD
+  PULSE_LATENCY_MSEC=150 ${DN_ENV:-} /bin/sh -c $CMD
 '"

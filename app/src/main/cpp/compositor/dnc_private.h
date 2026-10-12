@@ -130,6 +130,8 @@ struct dnc_toplevel {
     struct wl_list popups;               // dnc_popup.link
     int32_t configured_w, configured_h;  // logical
     bool activated;
+    bool fullscreen;                     // client asked for fullscreen
+    int32_t min_w, min_h, max_w, max_h;  // logical, 0 unset
     struct dnc_stats stats;              // guarded by server->stats_lock
 };
 
@@ -141,6 +143,14 @@ void dnc_toplevel_configure(struct dnc_toplevel *tl);
 void dnc_xdg_surface_commit(struct dnc_xdg_surface *xdg);
 void dnc_toplevel_schedule_repaint(struct dnc_toplevel *tl);
 void dnc_toplevel_dismiss_popups(struct dnc_toplevel *tl);
+
+/* Window pixel = offset + logical * zoom. Content that does not match its
+ * window (fixed size, fullscreen at another size) is zoomed to fit and
+ * centred instead of being drawn 1:1 from the corner. */
+struct dnc_view {
+    double zoom, x, y;
+};
+struct dnc_view dnc_toplevel_view(struct dnc_toplevel *tl);
 
 /* Server */
 
@@ -185,6 +195,7 @@ struct dnc_server {
     struct wl_list constraints;          // pointer constraints (constraints.c)
     struct wl_list relative_pointers;    // zwp_relative_pointer_v1 resources
     struct constraint *active_constraint;
+    struct wl_list outputs;              // wl_output resources
     struct wl_list xwl_surfaces;         // xwayland_surface_v1 resources
     struct wl_list xwl_windows;          // dnc_xwl_window.link
     struct wl_resource *xwm;             // dn_xwm_v1 of dn-xwm, NULL if none
@@ -232,6 +243,8 @@ bool dnc_pointer_locked(struct dnc_server *srv);
 // Movement for zwp_relative_pointer_v1 clients of the pointer focus
 void dnc_relative_motion(struct dnc_server *srv, double dx, double dy, uint32_t time_ms);
 void dnc_xwayland_finish(struct dnc_server *srv);
+void dnc_output_client_size(struct dnc_server *srv, struct wl_client *client,
+                            int32_t width, int32_t height);
 
 /* Xwayland (xwayland.c) */
 

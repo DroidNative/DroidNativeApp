@@ -61,10 +61,26 @@ C99): wl_compositor, wl_shm, xdg-shell, linux-dmabuf v3, xdg-decoration
 and is resized to fill it; the Android window is the decoration. Buffers
 are copied into GLES textures and drawn on the Android surface.
 
+Content that does not match its window is zoomed to fit, keeping its
+aspect ratio, and centred (`dnc_toplevel_view` in `compositor/server.c`;
+input is mapped back in `compositor/seat.c`). That covers fixed-size
+windows (minimum = maximum size: they get no size or maximized state in
+`dnc_toplevel_configure`, `compositor/xdg.c`) and fullscreen games that
+draw at their own size. A fullscreen request is answered with the
+fullscreen state; with maximized, SDL takes it as refused and sizes itself
+to the output. The output (`compositor/output.c`) is reported in landscape,
+since SDL2 reads its mode once at start and sizes exclusive fullscreen by
+it, and a client's output later follows its window's size for clients that
+track changes.
+
 X11 programs run on rootless Xwayland (`DISPLAY=:0`). `dn-xwm`
 (`linux-side/srcpkgs/droidnative-tools/files/dn-xwm.c`) starts it and is
 its window manager: it tells the compositor which X window is a toplevel
-or a popup (menus) through `dn_xwm_v1`. Xwayland listens only on the socket
+or a popup (menus) through `dn_xwm_v1`. X toplevels take their Android
+window's size, except fixed-size ones (WM_NORMAL_HINTS), which keep theirs,
+and fullscreen ones (`_NET_WM_STATE_FULLSCREEN`), which get the X screen's
+size because SDL draws for that size without asking; the compositor zooms
+both. Xwayland listens only on the socket
 file in the guest's `/tmp`, not on an abstract socket (those are shared
 with every Android app).
 

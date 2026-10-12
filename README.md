@@ -134,7 +134,8 @@ targeting phones and tablets:
 - Wayland is the default (`WAYLAND_DISPLAY=wayland-0`); X11 programs use
   rootless Xwayland on `DISPLAY=:0`. Every toplevel window becomes an
   Android window and is resized to it, so layouts must cope with narrow
-  portrait and wide landscape sizes.
+  portrait and wide landscape sizes. Fixed-size and fullscreen windows
+  keep their size and are zoomed to fit.
 - Text fields should use the Wayland text-input protocol (GTK and Qt do)
   so the on-screen keyboard opens.
 - Hardware: cameras are V4L2 devices (`/dev/videoN`), sensors use the IIO

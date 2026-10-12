@@ -41,7 +41,9 @@ static bool hit_toplevel(struct dnc_server *srv, struct dnc_toplevel *tl,
 {
     if (!tl->xdg || !tl->xdg->surface)
         return false;
-    double lx = x / srv->config.scale, ly = y / srv->config.scale;
+    (void)srv;
+    struct dnc_view v = dnc_toplevel_view(tl);
+    double lx = (x - v.x) / v.zoom, ly = (y - v.y) / v.zoom;
     double ox = tl->xdg->has_geometry ? -tl->xdg->geo_x : 0;
     double oy = tl->xdg->has_geometry ? -tl->xdg->geo_y : 0;
 
@@ -112,10 +114,12 @@ static void to_surface_local(struct dnc_server *srv, struct dnc_toplevel *tl,
                              struct dnc_surface *s, double x, double y,
                              double *sx, double *sy)
 {
+    (void)srv;
     double ox = 0, oy = 0;
     surface_origin(tl, s, &ox, &oy, 0);
-    *sx = x / srv->config.scale - ox;
-    *sy = y / srv->config.scale - oy;
+    struct dnc_view v = dnc_toplevel_view(tl);
+    *sx = (x - v.x) / v.zoom - ox;
+    *sy = (y - v.y) / v.zoom - oy;
 }
 
 static bool surface_in_popup(struct dnc_toplevel *tl, struct dnc_surface *s)
@@ -212,9 +216,8 @@ void dnc_seat_pointer_focus_surface(struct dnc_server *srv, struct dnc_surface *
 void dnc_seat_pointer_relative(struct dnc_server *srv, struct dnc_toplevel *tl,
                                double dx, double dy, uint32_t time)
 {
-    (void)tl;
     // Host pixels to surface coordinates
-    double s = srv->config.scale > 0 ? srv->config.scale : 1;
+    double s = dnc_toplevel_view(tl).zoom;
     dnc_relative_motion(srv, dx / s, dy / s, time);
     struct wl_resource *res;
     if (srv->seat.pointer_focus)

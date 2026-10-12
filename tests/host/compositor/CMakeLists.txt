@@ -59,7 +59,7 @@ add_executable(dnc-headless
     ${CPP}/compositor/render_null.c
     ${GEN_SERVER})
 target_include_directories(dnc-headless PRIVATE ${CPP}/compositor ${GEN} ${WL_INCLUDE_DIRS})
-target_link_libraries(dnc-headless PRIVATE ${WL_LINK_LIBRARIES} pthread)
+target_link_libraries(dnc-headless PRIVATE ${WL_LINK_LIBRARIES} pthread m)
 
 add_executable(dn-wltest ${REPO}/linux-side/srcpkgs/droidnative-tools/files/dn-wltest.c ${GEN_CLIENT})
 target_include_directories(dn-wltest PRIVATE ${GEN} ${WL_INCLUDE_DIRS})

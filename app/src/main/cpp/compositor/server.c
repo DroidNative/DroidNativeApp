@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -144,6 +145,9 @@ static void window_apply_size(struct dnc_toplevel *tl, int32_t w, int32_t h)
     int32_t scale = tl->server->config.scale;
     tl->configured_w = w / scale;
     tl->configured_h = h / scale;
+    // Before the configure: SDL sizes fullscreen windows by the output
+    if (tl->xdg && !tl->xdg->x11 && tl->xdg->surface)
+        dnc_output_client_size(tl->server, wl_resource_get_client(tl->xdg->surface->resource), w, h);
     dnc_toplevel_configure(tl);
 }
 
@@ -433,18 +437,44 @@ bool dnc_get_stats(struct dnc_server *srv, uint32_t id, struct dnc_stats *out)
 
 /* Repaint */
 
-static void draw_surface_tree(struct dnc_server *srv, struct dnc_surface *s,
-                              int32_t x, int32_t y)
+struct dnc_view dnc_toplevel_view(struct dnc_toplevel *tl)
 {
-    int32_t scale = srv->config.scale;
+    double scale = tl->server->config.scale;
+    struct dnc_view v = { scale, 0, 0 };
+    struct dnc_window *win = tl->window;
+    if (!win || !tl->xdg || !tl->xdg->surface)
+        return v;
+    struct dnc_xdg_surface *xdg = tl->xdg;
+    int32_t cw = xdg->has_geometry ? xdg->geo_w : dnc_surface_width(xdg->surface);
+    int32_t ch = xdg->has_geometry ? xdg->geo_h : dnc_surface_height(xdg->surface);
+    if (cw <= 0 || ch <= 0)
+        return v;
+    // Matching content: the configured size is the window divided by the
+    // scale, rounded down
+    double dw = win->width - cw * scale, dh = win->height - ch * scale;
+    if (dw >= 0 && dw < scale && dh >= 0 && dh < scale)
+        return v;
+    v.zoom = fmin((double)win->width / cw, (double)win->height / ch);
+    v.x = (win->width - cw * v.zoom) / 2;
+    v.y = (win->height - ch * v.zoom) / 2;
+    return v;
+}
+
+// x, y: logical position in the toplevel's coordinates
+static void draw_surface_tree(struct dnc_server *srv, const struct dnc_view *v,
+                              struct dnc_surface *s, int32_t x, int32_t y)
+{
     if (s->mapped && s->texture) {
-        srv->renderer->draw(srv->renderer_state, s->texture, x * scale, y * scale,
-                            dnc_surface_width(s) * scale,
-                            dnc_surface_height(s) * scale);
+        // Edges rounded on their own, so neighbouring subsurfaces meet
+        long x0 = lround(v->x + x * v->zoom), y0 = lround(v->y + y * v->zoom);
+        long x1 = lround(v->x + (x + dnc_surface_width(s)) * v->zoom);
+        long y1 = lround(v->y + (y + dnc_surface_height(s)) * v->zoom);
+        srv->renderer->draw(srv->renderer_state, s->texture, (int32_t)x0, (int32_t)y0,
+                            (int32_t)(x1 - x0), (int32_t)(y1 - y0));
     }
     struct dnc_subsurface *sub;
     wl_list_for_each_reverse(sub, &s->subsurfaces, link)
-        draw_surface_tree(srv, sub->surface, x + sub->x, y + sub->y);
+        draw_surface_tree(srv, v, sub->surface, x + sub->x, y + sub->y);
 }
 
 static void send_frames_tree(struct dnc_surface *s, uint32_t time)
@@ -479,7 +509,8 @@ static void repaint_toplevel(struct dnc_server *srv, struct dnc_toplevel *tl)
     // The window shows the toplevel's window geometry (no CSD shadows)
     int32_t ox = tl->xdg->has_geometry ? -tl->xdg->geo_x : 0;
     int32_t oy = tl->xdg->has_geometry ? -tl->xdg->geo_y : 0;
-    draw_surface_tree(srv, root, ox, oy);
+    struct dnc_view view = dnc_toplevel_view(tl);
+    draw_surface_tree(srv, &view, root, ox, oy);
 
     struct dnc_popup *popup;
     wl_list_for_each(popup, &tl->popups, link) {
@@ -489,7 +520,7 @@ static void repaint_toplevel(struct dnc_server *srv, struct dnc_toplevel *tl)
         popup_origin(popup, &px, &py);
         int32_t gx = popup->xdg->has_geometry ? popup->xdg->geo_x : 0;
         int32_t gy = popup->xdg->has_geometry ? popup->xdg->geo_y : 0;
-        draw_surface_tree(srv, popup->xdg->surface, ox + px - gx, oy + py - gy);
+        draw_surface_tree(srv, &view, popup->xdg->surface, ox + px - gx, oy + py - gy);
     }
 
     bool ok = srv->renderer->end(srv->renderer_state, win->rwin);
@@ -678,6 +709,7 @@ struct dnc_server *dnc_server_create(const struct dnc_config *config,
     srv->next_toplevel_id = 1;
     wl_list_init(&srv->surfaces);
     wl_list_init(&srv->toplevels);
+    wl_list_init(&srv->outputs);
     pthread_mutex_init(&srv->cmd_lock, NULL);
     pthread_mutex_init(&srv->stats_lock, NULL);
 

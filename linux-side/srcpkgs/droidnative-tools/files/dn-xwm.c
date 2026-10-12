@@ -7,7 +7,10 @@
  * matched through the serial Xwayland sends as a WL_SURFACE_SERIAL client
  * message (and passes to the compositor via xwayland_shell_v1); dn_xwm_v1 tells
  * the compositor what each serial is (dn-xwm-v1.xml). Toplevels sit at the
- * root origin and take the size of their Android window.
+ * root origin and take the size of their Android window, except fixed-size
+ * ones (minimum = maximum size), which keep theirs, and fullscreen ones
+ * (_NET_WM_STATE_FULLSCREEN), which get the X screen's size: SDL draws for
+ * that size without asking. The compositor zooms both to fit.
  *
  * Usage: dn-xwm [display]     default :0; exits when Xwayland does.
  */
@@ -42,6 +45,8 @@ struct win {
     uint16_t width, height;
     int32_t want_w, want_h;     // size of the Android window, 0 unknown
     int delete_window, take_focus;
+    int fixed;                  // WM_NORMAL_HINTS minimum = maximum
+    int fullscreen;
     struct win *next;
 };
 
@@ -55,12 +60,14 @@ static pid_t xwayland_pid;
 enum {
     WL_SURFACE_SERIAL, WM_PROTOCOLS, WM_DELETE_WINDOW, WM_TAKE_FOCUS, WM_STATE,
     WM_CLASS_A, NET_WM_NAME, UTF8_STRING, NET_WM_PID, NET_ACTIVE_WINDOW,
-    NET_SUPPORTING_WM_CHECK, NET_SUPPORTED, ATOM_COUNT
+    NET_SUPPORTING_WM_CHECK, NET_SUPPORTED, NET_WM_STATE, NET_WM_STATE_FULLSCREEN,
+    ATOM_COUNT
 };
 static const char *atom_names[ATOM_COUNT] = {
     "WL_SURFACE_SERIAL", "WM_PROTOCOLS", "WM_DELETE_WINDOW", "WM_TAKE_FOCUS",
     "WM_STATE", "WM_CLASS", "_NET_WM_NAME", "UTF8_STRING", "_NET_WM_PID",
     "_NET_ACTIVE_WINDOW", "_NET_SUPPORTING_WM_CHECK", "_NET_SUPPORTED",
+    "_NET_WM_STATE", "_NET_WM_STATE_FULLSCREEN",
 };
 static xcb_atom_t atoms[ATOM_COUNT];
 
@@ -177,6 +184,41 @@ static void read_protocols(struct win *w)
     free(r);
 }
 
+static void read_hints(struct win *w)
+{
+    // WM_SIZE_HINTS: flags, 4 obsolete, min w/h, max w/h, ...
+    enum { P_MIN_SIZE = 1 << 4, P_MAX_SIZE = 1 << 5 };
+    w->fixed = 0;
+    xcb_get_property_reply_t *r = get_prop(w->id, XCB_ATOM_WM_NORMAL_HINTS,
+                                           XCB_ATOM_WM_SIZE_HINTS, 18);
+    if (r && xcb_get_property_value_length(r) >= 9 * 4) {
+        int32_t *h = xcb_get_property_value(r);
+        w->fixed = (h[0] & P_MIN_SIZE) && (h[0] & P_MAX_SIZE) &&
+                   h[5] > 0 && h[6] > 0 && h[5] == h[7] && h[6] == h[8];
+    }
+    free(r);
+}
+
+static void read_fullscreen(struct win *w)
+{
+    w->fullscreen = 0;
+    xcb_get_property_reply_t *r = get_prop(w->id, atoms[NET_WM_STATE], XCB_ATOM_ATOM, 32);
+    if (!r)
+        return;
+    xcb_atom_t *a = xcb_get_property_value(r);
+    int n = xcb_get_property_value_length(r) / 4;
+    for (int i = 0; i < n; i++)
+        if (a[i] == atoms[NET_WM_STATE_FULLSCREEN])
+            w->fullscreen = 1;
+    free(r);
+}
+
+static void write_fullscreen(struct win *w)
+{
+    xcb_change_property(xc, XCB_PROP_MODE_REPLACE, w->id, atoms[NET_WM_STATE], XCB_ATOM_ATOM,
+                        32, w->fullscreen ? 1 : 0, &atoms[NET_WM_STATE_FULLSCREEN]);
+}
+
 static void read_serial(struct win *w)
 {
     xcb_get_property_reply_t *r = get_prop(w->id, atoms[WL_SURFACE_SERIAL], XCB_ATOM_CARDINAL, 2);
@@ -235,10 +277,19 @@ static void unmanage(struct win *w)
     w->serial = 0;     // a new mapping gets a new surface
 }
 
-// Toplevels fill their Android window, at the root origin
+// Toplevels fill their Android window, at the root origin; fixed-size
+// windows get width x height (their own or requested size)
 static void place(struct win *w, uint16_t width, uint16_t height)
 {
-    if (w->want_w > 0 && w->want_h > 0) {
+    if (w->fullscreen) {
+        // The screen follows the compositor's output, so ask each time
+        xcb_get_geometry_reply_t *g = xcb_get_geometry_reply(xc, xcb_get_geometry(xc, root), NULL);
+        if (g) {
+            width = g->width;
+            height = g->height;
+            free(g);
+        }
+    } else if (w->want_w > 0 && w->want_h > 0 && !w->fixed) {
         width = w->want_w;
         height = w->want_h;
     }
@@ -346,6 +397,8 @@ static void handle_x_event(xcb_generic_event_t *ev)
         struct win *w = add(e->window);
         w->toplevel = 1;
         read_protocols(w);
+        read_hints(w);
+        read_fullscreen(w);
         place(w, w->width, w->height);
         set_wm_state(e->window, 1 /* NormalState */);
         xcb_map_window(xc, e->window);
@@ -387,7 +440,9 @@ static void handle_x_event(xcb_generic_event_t *ev)
         struct win *w = find(e->window);
         if (w && w->toplevel && w->mapped) {
             // A managed toplevel keeps the size of its Android window
-            place(w, e->width, e->height);
+            // (fixed-size ones may change their own size)
+            place(w, (e->value_mask & XCB_CONFIG_WINDOW_WIDTH) ? e->width : w->width,
+                  (e->value_mask & XCB_CONFIG_WINDOW_HEIGHT) ? e->height : w->height);
             break;
         }
         uint32_t v[7];
@@ -422,6 +477,20 @@ static void handle_x_event(xcb_generic_event_t *ev)
     case XCB_CLIENT_MESSAGE: {
         // Xwayland names a window's surface with this message to the WM
         xcb_client_message_event_t *e = (void *)ev;
+        if (e->type == atoms[NET_WM_STATE] && e->format == 32) {
+            // data: action (0 remove, 1 add, 2 toggle), two properties
+            struct win *w = find(e->window);
+            uint32_t *d = e->data.data32;
+            if (!w || (d[1] != atoms[NET_WM_STATE_FULLSCREEN] &&
+                       d[2] != atoms[NET_WM_STATE_FULLSCREEN]))
+                break;
+            w->fullscreen = d[0] == 2 ? !w->fullscreen : d[0] == 1;
+            write_fullscreen(w);
+            if (w->toplevel)
+                place(w, w->width, w->height);
+            xcb_flush(xc);
+            break;
+        }
         if (e->type != atoms[WL_SURFACE_SERIAL] || e->format != 32)
             break;
         struct win *w = add(e->window);
@@ -445,6 +514,12 @@ static void handle_x_event(xcb_generic_event_t *ev)
             send_class(w);
         } else if (e->atom == atoms[WM_PROTOCOLS]) {
             read_protocols(w);
+        } else if (e->atom == XCB_ATOM_WM_NORMAL_HINTS) {
+            int was = w->fixed;
+            read_hints(w);
+            if (was != w->fixed)
+                place(w, w->width, w->height);
+            xcb_flush(xc);
         }
         wl_display_flush(wd);
         break;
@@ -526,9 +601,10 @@ static void setup_wm(void)
                         atoms[UTF8_STRING], 8, 6, "dn-xwm");
     xcb_change_property(xc, XCB_PROP_MODE_REPLACE, root, atoms[NET_SUPPORTING_WM_CHECK],
                         XCB_ATOM_WINDOW, 32, 1, &check);
-    xcb_atom_t supported[] = { atoms[NET_ACTIVE_WINDOW], atoms[NET_WM_NAME], atoms[NET_WM_PID] };
+    xcb_atom_t supported[] = { atoms[NET_ACTIVE_WINDOW], atoms[NET_WM_NAME], atoms[NET_WM_PID],
+                               atoms[NET_WM_STATE], atoms[NET_WM_STATE_FULLSCREEN] };
     xcb_change_property(xc, XCB_PROP_MODE_REPLACE, root, atoms[NET_SUPPORTED],
-                        XCB_ATOM_ATOM, 32, 3, supported);
+                        XCB_ATOM_ATOM, 32, 5, supported);
     xcb_flush(xc);
 }
 

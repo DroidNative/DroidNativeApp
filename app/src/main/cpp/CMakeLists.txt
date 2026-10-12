@@ -62,5 +62,5 @@ add_library(droidnative SHARED
     ${GEN_SRC})
 target_include_directories(droidnative PRIVATE compositor ${GEN} ${PREFIX}/include)
 target_compile_options(droidnative PRIVATE -Wall -Wextra -Werror=implicit-function-declaration)
-target_link_libraries(droidnative PRIVATE wayland-server ffi EGL GLESv3 android log)
+target_link_libraries(droidnative PRIVATE wayland-server ffi EGL GLESv3 android log m)
 target_link_options(droidnative PRIVATE -Wl,-z,max-page-size=16384 -Wl,--exclude-libs,ALL)

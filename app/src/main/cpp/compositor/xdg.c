@@ -175,20 +175,25 @@ void dnc_toplevel_configure(struct dnc_toplevel *tl)
     struct wl_array states;
     wl_array_init(&states);
     uint32_t *st;
-    if (tl->window) {
+    // Fixed size (minimum = maximum): the client keeps its size, the window
+    // zooms it (dnc_toplevel_view); maximized would contradict that size
+    bool fixed = !tl->fullscreen && tl->min_w > 0 && tl->min_h > 0 &&
+                 tl->min_w == tl->max_w && tl->min_h == tl->max_h;
+    if (tl->window && !fixed) {
         // Fills the Android window: maximized also makes CSD clients drop
-        // their shadows and rounded corners.
+        // their shadows and rounded corners. A fullscreen request is granted
+        // as such, or SDL takes it as refused and sizes itself to the output.
         st = wl_array_add(&states, sizeof(*st));
         if (st)
-            *st = XDG_TOPLEVEL_STATE_MAXIMIZED;
+            *st = tl->fullscreen ? XDG_TOPLEVEL_STATE_FULLSCREEN : XDG_TOPLEVEL_STATE_MAXIMIZED;
     }
     if (tl->activated) {
         st = wl_array_add(&states, sizeof(*st));
         if (st)
             *st = XDG_TOPLEVEL_STATE_ACTIVATED;
     }
-    int32_t w = tl->window ? tl->configured_w : 0;
-    int32_t h = tl->window ? tl->configured_h : 0;
+    int32_t w = tl->window && !fixed ? tl->configured_w : 0;
+    int32_t h = tl->window && !fixed ? tl->configured_h : 0;
     xdg_toplevel_send_configure(tl->xdg->role_resource, w, h, &states);
     wl_array_release(&states);
     tl->xdg->last_serial = next_serial(tl->server);
@@ -268,10 +273,27 @@ static void toplevel_resize(struct wl_client *c, struct wl_resource *r,
     (void)c; (void)r; (void)seat; (void)serial; (void)edges;
 }
 
-static void toplevel_set_size(struct wl_client *c, struct wl_resource *r,
-                              int32_t w, int32_t h)
+// Applied at once instead of on the next commit: only used for configures
+static void toplevel_set_max_size(struct wl_client *c, struct wl_resource *r,
+                                  int32_t w, int32_t h)
 {
-    (void)c; (void)r; (void)w; (void)h;
+    (void)c;
+    struct dnc_toplevel *tl = wl_resource_get_user_data(r);
+    if (!tl)
+        return;
+    tl->max_w = w;
+    tl->max_h = h;
+}
+
+static void toplevel_set_min_size(struct wl_client *c, struct wl_resource *r,
+                                  int32_t w, int32_t h)
+{
+    (void)c;
+    struct dnc_toplevel *tl = wl_resource_get_user_data(r);
+    if (!tl)
+        return;
+    tl->min_w = w;
+    tl->min_h = h;
 }
 
 static void toplevel_state_req(struct wl_client *c, struct wl_resource *r)
@@ -287,6 +309,17 @@ static void toplevel_set_fullscreen(struct wl_client *c, struct wl_resource *r,
                                     struct wl_resource *output)
 {
     (void)output;
+    struct dnc_toplevel *tl = wl_resource_get_user_data(r);
+    if (tl)
+        tl->fullscreen = true;
+    toplevel_state_req(c, r);
+}
+
+static void toplevel_unset_fullscreen(struct wl_client *c, struct wl_resource *r)
+{
+    struct dnc_toplevel *tl = wl_resource_get_user_data(r);
+    if (tl)
+        tl->fullscreen = false;
     toplevel_state_req(c, r);
 }
 
@@ -303,12 +336,12 @@ static const struct xdg_toplevel_interface toplevel_impl = {
     .show_window_menu = toplevel_show_window_menu,
     .move = toplevel_move,
     .resize = toplevel_resize,
-    .set_max_size = toplevel_set_size,
-    .set_min_size = toplevel_set_size,
+    .set_max_size = toplevel_set_max_size,
+    .set_min_size = toplevel_set_min_size,
     .set_maximized = toplevel_state_req,
     .unset_maximized = toplevel_state_req,
     .set_fullscreen = toplevel_set_fullscreen,
-    .unset_fullscreen = toplevel_state_req,
+    .unset_fullscreen = toplevel_unset_fullscreen,
     .set_minimized = toplevel_set_minimized,
 };
 
