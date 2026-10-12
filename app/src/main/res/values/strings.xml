@@ -126,6 +126,11 @@
     <string name="dpi_inherit">Global setting</string>
     <string name="dpi_hint">Size of Linux UI elements, independent of the resolution. Whole steps of 96 DPI scale everything; the rest scales text (GTK) or everything (Qt). Applies after restarting the environment.</string>
     <string name="mouse_mode">Touch input</string>
+    <string name="settings_sound">Sound</string>
+    <string name="audio_buffer">Audio buffer</string>
+    <string name="audio_buffer_ms">%1$d ms</string>
+    <string name="audio_buffer_default">%1$d ms (default)</string>
+    <string name="audio_buffer_hint">Smaller buffers make sound follow the picture more closely; raise it if sound crackles or stutters. Linux programs pick it up when they start.</string>
     <string name="mouse_touch">Touch</string>
     <string name="mouse_mouse">Emulated mouse clicks</string>
     <string name="mouse_touchpad">Emulated touchpad</string>

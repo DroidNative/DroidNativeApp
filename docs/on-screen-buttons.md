@@ -48,16 +48,16 @@ German keymap the key named "z" types a y, as on a real keyboard.
 
 ## Editor
 
-The canvas is the whole screen, so positions match a window. "+ Add"
-places a button or a joystick preset. Tap selects an element, drag moves
-it, pinch resizes it, double tap opens its properties (label, size, action
-or directions, group); swipe the panel down to close it. Key fields are
-searchable: type into them to filter (by label, key name or words such as
-"arrow" or "escape").
-"Groups" adds, renames and deletes groups and sets whether each is visible
-at start; buttons of groups hidden at start are drawn dimmed. "Layout" sets
-the name and the button opacity. The layout is saved when the editor is
-left.
+The canvas is the screen without system bars and cutout, the area a
+window gets, so positions match. "+ Add" places a button or a joystick
+preset. Tap selects an element, drag moves it, pinch resizes it, double
+tap opens its properties (label, size, action or directions, group);
+swipe the panel down to close it. Key fields are searchable: type into
+them to filter (by label, key name or words such as "arrow" or
+"escape"). "Groups" adds, renames and deletes groups and sets whether
+each is visible at start; buttons of groups hidden at start are drawn
+dimmed. "Layout" sets the name and the button opacity. The layout is
+saved when the editor is left.
 
 ## File format
 

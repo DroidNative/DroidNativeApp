@@ -138,11 +138,16 @@ runs here).
 
 PulseAudio runs in the guest with a pipe sink; the app reads the PCM from
 the FIFO and plays it through `AudioTrack` (`env/AudioOutput.kt`, at
-Android's audio thread priority so busy guests cannot starve it). The pipe
-sink reports its latency poorly, and programs asking for small buffers
-(OpenAL Soft, SDL) then underrun many times a second; every guest program
-therefore gets `PULSE_LATENCY_MSEC=150`, measured gap-free with SuperTux 2
-on GPU and software rendering. The
+Android's audio thread priority so busy guests cannot starve it). The sink
+keeps the FIFO full, so the pipe's 64 KiB (340 ms) were pure latency;
+`AudioOutput` shrinks it to 8 KiB with `F_SETPIPE_SZ` (dropping what is
+queued once if it is fuller) and the AudioTrack buffer absorbs late
+deliveries instead. Programs asking for small buffers (OpenAL Soft, SDL)
+underrun many times a second behind the pipe sink, so every guest program
+gets `PULSE_LATENCY_MSEC` (`env/Proot.kt`, Flatpak apps inherit it). Both
+come from the "Audio buffer" setting (`Prefs.audioBufferMs`, default 150
+ms, measured gap-free with SuperTux 2 on GPU and software rendering); the
+AudioTrack part applies at once, the program part on its next start. The
 microphone works the other way round (`devices/MicBridge.kt`). A D-Bus
 session bus runs alongside (`assets/guest/session.sh`).
 

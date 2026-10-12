@@ -22,6 +22,10 @@ if command -v flatpak >/dev/null; then
     # Defaults for every app: our compositor and sound server, and the whole
     # /dev (the GPU is /dev/kgsl-3d0 plus ION/dma-heap, not /dev/dri).
     flatpak override --user --socket=wayland --socket=pulseaudio --device=all \
-        --env=TU_DEBUG=noconform --env=PULSE_LATENCY_MSEC=150
+        --env=TU_DEBUG=noconform
+    # PULSE_LATENCY_MSEC comes from the app's audio setting; older versions
+    # fixed it here, which would override that
+    global="$HOME/.local/share/flatpak/overrides/global"
+    if [ -f "$global" ]; then sed -i '/^PULSE_LATENCY_MSEC=/d' "$global"; fi
 fi
 echo "[setup-end]"

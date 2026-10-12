@@ -40,7 +40,7 @@ object Session {
         process = proc
         Log.i(TAG, "session started")
 
-        if (audio == null) audio = AudioOutput(paths.audioFifo).also { it.start() }
+        if (audio == null) audio = AudioOutput(paths.audioFifo, Prefs(context).audioBufferMs).also { it.start() }
         return true
     }
 

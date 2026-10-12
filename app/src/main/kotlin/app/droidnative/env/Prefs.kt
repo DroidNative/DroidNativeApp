@@ -56,4 +56,18 @@ class Prefs(context: Context) {
     var storageAccess: Boolean
         get() = sp.getBoolean("storage_access", false)
         set(v) = sp.edit().putBoolean("storage_access", v).apply()
+
+    /**
+     * Audio buffer in ms, one of [AUDIO_BUFFERS]: the PulseAudio latency
+     * guest programs ask for and the AudioTrack buffer (AudioOutput.kt).
+     */
+    var audioBufferMs: Int
+        get() = sp.getInt("audio_buffer_ms", DEFAULT_AUDIO_BUFFER).takeIf { it in AUDIO_BUFFERS } ?: DEFAULT_AUDIO_BUFFER
+        set(v) = sp.edit().putInt("audio_buffer_ms", v).apply()
+
+    companion object {
+        val AUDIO_BUFFERS = listOf(50, 100, 150, 250, 400)
+        // Measured gap-free with SuperTux 2 on GPU and software rendering
+        const val DEFAULT_AUDIO_BUFFER = 150
+    }
 }

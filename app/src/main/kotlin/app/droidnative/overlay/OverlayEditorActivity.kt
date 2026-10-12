@@ -20,6 +20,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -70,8 +75,9 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
- * Editor for a button layout. The canvas is the whole screen, like a
- * window, so positions match; toolbar and properties float on top.
+ * Editor for a button layout. The canvas is the screen without system
+ * bars and cutout, the area a window gets, so positions match; toolbar
+ * and properties float on top.
  * Tap selects a button or joystick, drag moves it, pinch resizes it,
  * double tap opens its properties; swiping the panel down closes them. Saved when the
  * editor is left.
@@ -125,57 +131,60 @@ private fun Editor(layout: OverlayLayout, onChange: (OverlayLayout) -> Unit, onD
 
     fun update(b: OverlayButton) = onChange(current.copy(buttons = current.buttons.map { if (it.id == b.id) b else it }))
 
-    Box(Modifier.fillMaxSize().background(Color(0xFF2B2F36))
-        .onSizeChanged { canvas = it }
+    Box(Modifier.fillMaxSize().background(Color.Black)
         .pointerInput(Unit) { detectTapGestures { selected = null; editing = false } }) {
 
-        for (b in layout.buttons) {
-            val w = b.width * density
-            val h = b.height * density
-            val x = (b.x * canvas.width - w / 2).coerceIn(0f, (canvas.width - w).coerceAtLeast(0f))
-            val y = (b.y * canvas.height - h / 2).coerceIn(0f, (canvas.height - h).coerceAtLeast(0f))
-            val hiddenAtStart = b.group != null && layout.groups.firstOrNull { it.id == b.group }?.visible == false
-            val isSelected = b.id == selected
-            val shape = if (b.isJoystick) CircleShape else RoundedCornerShape(12.dp)
-            Box(Modifier.offset { IntOffset(x.roundToInt(), y.roundToInt()) }
-                .size(b.width.dp, b.height.dp)
-                .alpha(if (hiddenAtStart) 0.5f else 1f)
-                .background(Color.Black.copy(alpha = layout.opacity / 2), shape)
-                .border(if (isSelected) 3.dp else 2.dp,
-                    if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = layout.opacity),
-                    shape)
-                .pointerInput(b.id) {
-                    detectTapGestures(
-                        onTap = { selected = b.id },
-                        onDoubleTap = { selected = b.id; editing = true })
-                }
-                .pointerInput(b.id, canvas) {
-                    detectTransformGestures { _, pan, zoom, _ ->
-                        selected = b.id
-                        val cur = current.buttons.firstOrNull { it.id == b.id } ?: return@detectTransformGestures
-                        val w = (cur.width * zoom).roundToInt().coerceIn(MIN_SIZE, MAX_SIZE)
-                        if (cur.isJoystick) update(cur.copy(
-                            x = (cur.x + pan.x / canvas.width).coerceIn(0f, 1f),
-                            y = (cur.y + pan.y / canvas.height).coerceIn(0f, 1f),
-                            width = w, height = w))
-                        else update(cur.copy(
-                            x = (cur.x + pan.x / canvas.width).coerceIn(0f, 1f),
-                            y = (cur.y + pan.y / canvas.height).coerceIn(0f, 1f),
-                            width = (cur.width * zoom).roundToInt().coerceIn(MIN_SIZE, MAX_SIZE),
-                            height = (cur.height * zoom).roundToInt().coerceIn(MIN_SIZE, MAX_SIZE)))
+        // Same area as the window: without system bars and cutout
+        Box(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.systemBars.union(WindowInsets.displayCutout))
+            .background(Color(0xFF2B2F36)).onSizeChanged { canvas = it }) {
+            for (b in layout.buttons) {
+                val w = b.width * density
+                val h = b.height * density
+                val x = (b.x * canvas.width - w / 2).coerceIn(0f, (canvas.width - w).coerceAtLeast(0f))
+                val y = (b.y * canvas.height - h / 2).coerceIn(0f, (canvas.height - h).coerceAtLeast(0f))
+                val hiddenAtStart = b.group != null && layout.groups.firstOrNull { it.id == b.group }?.visible == false
+                val isSelected = b.id == selected
+                val shape = if (b.isJoystick) CircleShape else RoundedCornerShape(12.dp)
+                Box(Modifier.offset { IntOffset(x.roundToInt(), y.roundToInt()) }
+                    .size(b.width.dp, b.height.dp)
+                    .alpha(if (hiddenAtStart) 0.5f else 1f)
+                    .background(Color.Black.copy(alpha = layout.opacity / 2), shape)
+                    .border(if (isSelected) 3.dp else 2.dp,
+                        if (isSelected) MaterialTheme.colorScheme.primary else Color.White.copy(alpha = layout.opacity),
+                        shape)
+                    .pointerInput(b.id) {
+                        detectTapGestures(
+                            onTap = { selected = b.id },
+                            onDoubleTap = { selected = b.id; editing = true })
                     }
-                },
-                contentAlignment = Alignment.Center) {
-                Text(b.label, color = Color.White, textAlign = TextAlign.Center,
-                    style = MaterialTheme.typography.labelLarge)
-                (b.action as? ButtonAction.Joystick)?.let { stick ->
-                    // Direction labels near the rim, as in the window
-                    val n = stick.outputs.size
-                    for ((i, label) in stickLabels(stick).withIndex()) {
-                        val a = Math.toRadians(stick.rotation + i * 360.0 / n)
-                        val rim = b.width * 0.36f
-                        Text(label, Modifier.offset((rim * sin(a)).toFloat().dp, (-rim * cos(a)).toFloat().dp),
-                            color = Color.White, style = MaterialTheme.typography.labelMedium)
+                    .pointerInput(b.id, canvas) {
+                        detectTransformGestures { _, pan, zoom, _ ->
+                            selected = b.id
+                            val cur = current.buttons.firstOrNull { it.id == b.id } ?: return@detectTransformGestures
+                            val w = (cur.width * zoom).roundToInt().coerceIn(MIN_SIZE, MAX_SIZE)
+                            if (cur.isJoystick) update(cur.copy(
+                                x = (cur.x + pan.x / canvas.width).coerceIn(0f, 1f),
+                                y = (cur.y + pan.y / canvas.height).coerceIn(0f, 1f),
+                                width = w, height = w))
+                            else update(cur.copy(
+                                x = (cur.x + pan.x / canvas.width).coerceIn(0f, 1f),
+                                y = (cur.y + pan.y / canvas.height).coerceIn(0f, 1f),
+                                width = (cur.width * zoom).roundToInt().coerceIn(MIN_SIZE, MAX_SIZE),
+                                height = (cur.height * zoom).roundToInt().coerceIn(MIN_SIZE, MAX_SIZE)))
+                        }
+                    },
+                    contentAlignment = Alignment.Center) {
+                    Text(b.label, color = Color.White, textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.labelLarge)
+                    (b.action as? ButtonAction.Joystick)?.let { stick ->
+                        // Direction labels near the rim, as in the window
+                        val n = stick.outputs.size
+                        for ((i, label) in stickLabels(stick).withIndex()) {
+                            val a = Math.toRadians(stick.rotation + i * 360.0 / n)
+                            val rim = b.width * 0.36f
+                            Text(label, Modifier.offset((rim * sin(a)).toFloat().dp, (-rim * cos(a)).toFloat().dp),
+                                color = Color.White, style = MaterialTheme.typography.labelMedium)
+                        }
                     }
                 }
             }

@@ -50,10 +50,10 @@ class Proot(private val paths: EnvPaths) {
         "XDG_SESSION_TYPE" to "wayland",
         // Session bus started by assets/guest/session.sh
         "DBUS_SESSION_BUS_ADDRESS" to "unix:path=${EnvPaths.GUEST_RUN_DIR}/bus",
-        // PulseAudio's pipe sink (AudioOutput.kt) reports its latency badly:
-        // programs that ask for small buffers (OpenAL, SDL) then underrun
-        // constantly. 150 ms measured gap-free with SuperTux 2.
-        "PULSE_LATENCY_MSEC" to "150",
+        // Programs that ask for small buffers (OpenAL, SDL) underrun
+        // constantly behind the pipe sink (AudioOutput.kt); the "Audio
+        // buffer" setting
+        "PULSE_LATENCY_MSEC" to Prefs(paths.appContext).audioBufferMs.toString(),
     )
 
     private fun home(root: Boolean) = if (root) "/root" else EnvPaths.GUEST_HOME

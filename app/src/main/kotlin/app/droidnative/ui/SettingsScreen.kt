@@ -53,6 +53,7 @@ import app.droidnative.env.Passthrough
 import app.droidnative.env.ThemeMode
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.droidnative.env.Prefs
+import app.droidnative.env.Session
 import app.droidnative.env.StorageMounts
 
 /** Settings tab: device passthrough and storage access. */
@@ -82,6 +83,10 @@ fun SettingsScreen() {
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         SectionTitle(R.string.settings_display)
         DisplaySettings()
+
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        SectionTitle(R.string.settings_sound)
+        SoundSettings()
 
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         SectionTitle(R.string.settings_storage)
@@ -276,6 +281,25 @@ private fun DisplaySettings() {
                 mouse = it
                 prefs.mouseMode = it
             })
+    }
+}
+
+@Composable
+private fun SoundSettings() {
+    val context = LocalContext.current
+    val prefs = remember { Prefs(context) }
+    var buffer by remember { mutableStateOf(prefs.audioBufferMs) }
+    Column(FormPadding, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Choice(stringResource(R.string.audio_buffer), buffer, Prefs.AUDIO_BUFFERS, {
+                if (it == Prefs.DEFAULT_AUDIO_BUFFER) stringResource(R.string.audio_buffer_default, it)
+                else stringResource(R.string.audio_buffer_ms, it)
+            }, {
+                buffer = it
+                prefs.audioBufferMs = it
+                Session.audio?.setBuffer(it)
+            })
+        Text(stringResource(R.string.audio_buffer_hint), style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
