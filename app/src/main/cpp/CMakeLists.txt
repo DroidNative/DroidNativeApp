@@ -31,7 +31,7 @@ foreach(p xdg-shell linux-dmabuf-unstable-v1 xdg-decoration-unstable-v1
 endforeach()
 
 # Private protocol of dn-xwm (guest X window manager), kept with its package
-set(DN_XWM_XML ${CMAKE_CURRENT_SOURCE_DIR}/../../../../linux-side/srcpkgs/droidnative-tools/files/dn-xwm-v1.xml)
+set(DN_XWM_XML ${CMAKE_CURRENT_SOURCE_DIR}/../../../../guest-tools/dn-xwm-v1.xml)
 add_custom_command(
     OUTPUT ${GEN}/dn-xwm-v1-server-protocol.h ${GEN}/dn-xwm-v1-protocol.c
     COMMAND ${WAYLAND_SCANNER} server-header ${DN_XWM_XML} ${GEN}/dn-xwm-v1-server-protocol.h

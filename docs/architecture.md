@@ -18,8 +18,9 @@ Android app (Kotlin, NDK C)
 ```
 
 Source layout: `app/` (Android app), `native-host/` (Android builds of
-proot, libffi, libwayland-server), `linux-side/` (Void packages built with
-xbps-src in Docker), `tests/` (PC and device tests).
+proot, libffi, libwayland-server), `guest-tools/` (sources of the
+droidnative-tools package), `tests/` (PC and device tests). The Void
+packages themselves are built in the xbps-repository repository.
 
 ## Running programs without root
 
@@ -110,7 +111,7 @@ ratio scaled up to that minimum, so the zoom fills the window without
 bars (`dnc_toplevel_configure`; `set_min_size` reconfigures).
 
 X11 programs run on rootless Xwayland (`DISPLAY=:0`). `dn-xwm`
-(`linux-side/srcpkgs/droidnative-tools/files/dn-xwm.c`) starts it and is
+(`guest-tools/dn-xwm.c`) starts it and is
 its window manager: it tells the compositor which X window is a toplevel
 or a popup (menus) through `dn_xwm_v1`. X toplevels take their Android
 window's size, except fixed-size ones (WM_NORMAL_HINTS), which keep theirs,
@@ -275,11 +276,20 @@ Cameras, sensors, location and microphone: see
 
 The rootfs is the official Void Linux glibc tarball. `assets/guest/setup.sh`
 installs the default packages from Void's mirrors plus DroidNative's own
-packages from a local repository inside the APK (`app/src/main/assets/repo`,
-built by `linux-side/build-packages.sh`): the Turnip and Zink Mesa builds,
-the Flatpak GL extension, gl4es and `droidnative-tools` (dn-gl, dn-xwm,
-dn-appimage, libdn-appenv). The setup runs again when an app update ships a
-different setup script or repository.
+from the DroidNative repository: the Turnip and Zink Mesa builds, the
+Flatpak GL extension, gl4es and `droidnative-tools` (dn-gl, dn-xwm,
+dn-appimage, libdn-appenv; sources in `guest-tools/`). That repository is
+built by https://github.com/DroidNative/xbps-repository, whose workflow
+rebuilds a package when Void's rolling updates break it, and published as
+a GitHub release. Its URL is `BuildConfig.XBPS_REPO` (`DN_XBPS_REPO` at
+build time, see `app/build.gradle.kts`); `env/GuestSetup.kt` lists it in
+`/etc/xbps.d/10-droidnative.conf`, before Void's repositories. xbps only
+installs from signed remote repositories and cannot ask whether to trust a
+new key without a terminal, so the app installs the trusted keys from
+`assets/xbps-keys/` (plus `DN_XBPS_KEY` for test builds) into
+`/var/db/xbps/keys`. The setup runs again when an app update ships a
+different setup script or repository URL; package updates come through
+the repository.
 
 **Flatpak store** ("Manage Flatpaks", `ui/FlatpakActivity.kt`,
 `apps/Flatpak.kt`): the user installation (`flatpak --user`). The catalogue

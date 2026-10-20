@@ -52,7 +52,7 @@ for p in $MISSING; do
         log "$p already installed as a dependency"
         continue
     fi
-    # droidnative-* come from the local repo, which may lack this arch
+    # DroidNative's own packages are not built for every arch
     if ! xbps-query -R "$p" >/dev/null 2>&1; then
         log "package $p not available for $ARCH, skipped"
         continue

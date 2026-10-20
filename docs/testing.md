@@ -22,12 +22,14 @@ a phone over adb.
    `local.properties`). Needs `curl`, `git`, `make`, `rsync`, `python3`, a
    host C compiler and libexpat headers. `DN_PROOT_SRC=<checkout>` builds a
    local proot checkout instead.
-2. `linux-side/build-packages.sh [-a arch]`: Void packages from
-   `linux-side/srcpkgs/` (Turnip for KGSL, `droidnative-tools`), built in
-   Docker with xbps-src. Output goes to `app/src/main/assets/repo/<arch>/`.
-   Your user needs access to the Docker daemon (`docker` group). Add `-c`
-   after a failed build to clean that package's build directories first.
-3. `./gradlew assemblePlayDebug` or `assembleFdroidDebug`.
+2. `./gradlew assemblePlayDebug` or `assembleFdroidDebug`. The guest's
+   DroidNative packages come from the published xbps-repository.
+   To try packages built locally there (`./xbps.sh build`, signed with
+   your own key from `./xbps.sh keygen`), serve its `out/repo` and build
+   with `DN_XBPS_REPO=http://127.0.0.1:8000 DN_XBPS_KEY=<key>.plist`
+   after `adb reverse tcp:8000 tcp:8000`. Changes to `guest-tools/` reach
+   the published packages with the next workflow run after they land on
+   `main`; `DN_APP_SRC=<this checkout>` builds them locally.
 
 ## Device suite
 

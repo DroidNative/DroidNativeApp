@@ -83,7 +83,7 @@ object Xbps {
             val m = SEARCH_LINE.matchEntire(line.trim()) ?: continue
             val (name, version) = splitPkgver(m.groupValues[2])
             val pkg = Pkg(name, version, m.groupValues[3].trim(), m.groupValues[1] == "*")
-            // The local DroidNative repository and Void's may both list it
+            // The DroidNative repository and Void's may both list it
             val old = byName[name]
             if (old == null || (pkg.installed && !old.installed)) byName[name] = pkg
         }

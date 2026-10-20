@@ -43,8 +43,7 @@ pid. Programs not started by DroidNative use the entry whose program
 | Use their own or the global settings | a listed program's own, else global | listed programs: their own; others: the defaults |
 
 The environment part needs `libdn-appenv.so` (package droidnative-tools,
-`linux-side/srcpkgs/droidnative-tools/files/dn-appenv.c`). The package
-lists it in `/etc/ld.so.preload`, so every guest program carries it (it
+`guest-tools/dn-appenv.c`). The package lists it in `/etc/ld.so.preload`, so every guest program carries it (it
 also adds `--no-sandbox` to Chromium based programs, see architecture.md);
 the policy only acts for the two restricted choices, which set
 `DN_APP_CHILDREN` (and LD_PRELOAD, for guests set up before). It wraps `exec*` and `posix_spawn*`: a new

@@ -198,17 +198,18 @@ echo "sdk.dir=$HOME/Android/Sdk" > local.properties
 # 2. Android-side executables (PRoot, libffi, libwayland-server) for all ABIs
 native-host/build.sh
 
-# 3. Linux-side packages (Mesa with Turnip/Zink, gl4es, tools), per
-#    architecture; the first run builds Mesa and takes a while
-for arch in aarch64 armv7l x86_64 i686; do linux-side/build-packages.sh -a "$arch"; done
-
-# 4. The app: play (Android 10+) or fdroid (Android 7+) flavour
+# 3. The app: play (Android 10+) or fdroid (Android 7+) flavour
 ./gradlew assemblePlayDebug
 ./gradlew assembleFdroidDebug
 
-# 5. Install on a phone with USB debugging
+# 4. Install on a phone with USB debugging
 adb install -r app/build/outputs/apk/play/debug/app-play-debug.apk
 ```
+
+The guest's own packages (Mesa with Turnip/Zink, gl4es, the tools from
+`guest-tools/`) come from https://github.com/DroidNative/xbps-repository,
+which rebuilds them when Void's updates break them. `DN_XBPS_REPO` points
+a build at another repository URL.
 
 Release builds (`./gradlew assemblePlayRelease assembleFdroidRelease`) are
 signed when `keystore.properties` exists in the project root (`storeFile`,

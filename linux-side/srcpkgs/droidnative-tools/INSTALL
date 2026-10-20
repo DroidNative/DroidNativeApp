@@ -1,8 +1,0 @@
-# libdn-appenv in every guest program: Chromium based programs get
-# --no-sandbox (files/dn-appenv.c)
-case "${ACTION}" in
-post)
-	grep -qx /usr/lib/droidnative/libdn-appenv.so etc/ld.so.preload 2>/dev/null ||
-		echo /usr/lib/droidnative/libdn-appenv.so >> etc/ld.so.preload
-	;;
-esac

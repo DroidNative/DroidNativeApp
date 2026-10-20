@@ -10,7 +10,7 @@ RFS="$ROOT/.cache/hostenv/rootfs-x86_64"
 RUN="$ROOT/.cache/hostenv/run"   # the guest's /run/droidnative
 OUT="$ROOT/.cache/hostenv/notify-test"
 mkdir -p "$RUN" "$OUT" "$RFS/tmp/dn-build"
-cp "$ROOT/linux-side/srcpkgs/droidnative-tools/files/dn-notifyd.c" "$HERE/fake-player.py" "$RFS/tmp/dn-build/"
+cp "$ROOT/guest-tools/dn-notifyd.c" "$HERE/fake-player.py" "$RFS/tmp/dn-build/"
 
 python3 "$HERE/fake-app.py" "$RUN/bridge.sock" "$OUT/bridge.log" &
 APP=$!

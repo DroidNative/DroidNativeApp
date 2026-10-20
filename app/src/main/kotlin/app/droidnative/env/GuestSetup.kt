@@ -2,13 +2,14 @@ package app.droidnative.env
 
 import android.content.Context
 import android.net.ConnectivityManager
+import app.droidnative.BuildConfig
 import java.io.File
 import java.io.IOException
 import java.net.Inet4Address
 
 /**
- * First-boot configuration of the guest: host-side files (DNS, repos,
- * profile), the local xbps repository from APK assets, then
+ * First-boot configuration of the guest: host-side files (DNS, the
+ * DroidNative package repository and its signing key, profile), then
  * assets/guest/setup.sh inside proot (package installation, keymap).
  */
 class GuestSetup(
@@ -16,25 +17,26 @@ class GuestSetup(
     private val paths: EnvPaths,
     private val proot: Proot,
 ) {
-    /** Done for the setup script and local repo shipped with this APK. */
+    /** Done for the setup scripts and package repository of this APK. */
     val isDone get() = paths.setupDone.isFile && paths.setupDone.readText().trim() == setupId()
 
     /**
      * Identifies what the guest was set up with: changes when an app update
-     * ships a different setup.sh or local package repository, which makes
-     * the (idempotent) setup run again.
+     * ships a different setup.sh or package repository, which makes the
+     * (idempotent) setup run again. Package updates come from the
+     * repository itself (Xbps.update).
      */
     fun setupId(): String = cachedId ?: computeSetupId().also { cachedId = it }
 
     private fun computeSetupId(): String {
         val md = java.security.MessageDigest.getInstance("SHA-256")
-        val arch = VoidArch.current().voidName
-        for (asset in listOf("guest/setup.sh", "guest/setup-user.sh", "repo/$arch/$arch-repodata")) {
+        for (asset in listOf("guest/setup.sh", "guest/setup-user.sh")) {
             try {
                 context.assets.open(asset).use { md.update(it.readBytes()) }
             } catch (_: IOException) {
             }
         }
+        md.update(BuildConfig.XBPS_REPO.toByteArray())
         return md.digest().joinToString("") { "%02x".format(it) }
     }
 
@@ -46,10 +48,17 @@ class GuestSetup(
             "127.0.0.1 localhost\n::1 localhost ip6-localhost ip6-loopback\n")
         File(etc, "hostname").writeText("droidnative\n")
 
-        val arch = VoidArch.current().voidName
+        // Listed before Void's repositories (/usr/share/xbps.d), so its
+        // packages win. xbps only installs from signed remote repositories
+        // and cannot ask whether to trust a key here, hence the shipped keys.
         File(etc, "xbps.d").mkdirs()
-        File(etc, "xbps.d/10-droidnative-local.conf")
-            .writeText("repository=${EnvPaths.GUEST_LOCAL_REPO}/$arch\n")
+        File(etc, "xbps.d/10-droidnative.conf")
+            .writeText("repository=${BuildConfig.XBPS_REPO}\n")
+        File(etc, "xbps.d/10-droidnative-local.conf").delete()   // bundled repo of older versions
+        val keys = File(paths.rootfs, "var/db/xbps/keys")
+        keys.mkdirs()
+        for (name in context.assets.list("xbps-keys").orEmpty())
+            if (name.endsWith(".plist")) copyAsset("xbps-keys/$name", File(keys, name))
 
         File(etc, "profile.d").mkdirs()
         copyAsset("guest/profile.sh", File(etc, "profile.d/droidnative.sh"))
@@ -66,9 +75,8 @@ class GuestSetup(
         File(paths.rootfs, "media/android").delete()   // old name; only goes if empty
         for (mount in StorageMounts.volumes(context))
             File(paths.rootfs, mount.guest.trimStart('/')).mkdirs()
-        File(paths.rootfs, "opt/droidnative/repo").mkdirs()
         File(paths.rootfs, "run/droidnative").mkdirs()
-        syncLocalRepo(arch)
+        removeLocalRepo()
     }
 
     /** Runs the guest part of the setup. Needs network. Returns the output. */
@@ -113,16 +121,12 @@ class GuestSetup(
         file.writeText(servers.joinToString("") { "nameserver $it\n" })
     }
 
-    private fun syncLocalRepo(arch: String) {
-        val dest = File(paths.localRepo, arch)
-        dest.mkdirs()
-        val names = context.assets.list("repo/$arch") ?: return
-        for (name in names) {
-            val out = File(dest, name)
-            // Packages are versioned by name, only the index changes in place
-            if (out.isFile && !name.endsWith("-repodata")) continue
-            copyAsset("repo/$arch/$name", out)
-        }
+    /** Older versions copied a package repository from the APK; it goes. */
+    private fun removeLocalRepo() {
+        val legacy = File(paths.filesDir, "repo")
+        if (legacy.isDirectory) legacy.deleteRecursively()
+        File(paths.rootfs, "opt/droidnative/repo").delete()   // mount point, only if empty
+        File(paths.rootfs, "opt/droidnative").delete()
     }
 
     private fun copyAsset(asset: String, dest: File) {

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # libdn-appenv on the PC: per-app settings and the child process policy.
-# Installs the library and dn-gl from linux-side/srcpkgs/droidnative-tools
+# Installs the library and dn-gl from guest-tools/
 # into the PC guest of .cache/hostproot, then runs a fake application that
 # starts a listed ("mousepad") and an unlisted ("printenv") program.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 RFS="$ROOT/.cache/hostenv/rootfs-x86_64"
 RUN="$ROOT/.cache/hostenv/run"   # the guest's /run/droidnative
-SRC="$ROOT/linux-side/srcpkgs/droidnative-tools/files"
+SRC="$ROOT/guest-tools"
 mkdir -p "$RFS/usr/lib/droidnative" "$RUN"
 gcc -std=gnu99 -O2 -Wall -shared -fPIC -o "$RFS/usr/lib/droidnative/libdn-appenv.so" "$SRC/dn-appenv.c" -ldl
 install -m755 "$SRC/dn-gl" "$RFS/usr/bin/dn-gl"

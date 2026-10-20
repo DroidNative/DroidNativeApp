@@ -116,7 +116,6 @@ class Proot(private val paths: EnvPaths) {
         b += File(paths.sysdataDir, "empty").path to "/sys/fs/selinux"
         b += File(paths.filesDir, "shm").path to "/dev/shm"
         b += paths.runDir.path to EnvPaths.GUEST_RUN_DIR
-        b += paths.localRepo.path to EnvPaths.GUEST_LOCAL_REPO
         b += Devices.binds(paths)
         return b
     }

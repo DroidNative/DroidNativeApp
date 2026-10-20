@@ -50,6 +50,36 @@ abstract class GenerateLauncherIcons : DefaultTask() {
     }
 }
 
+/**
+ * Trusted signing key for test builds: DN_XBPS_KEY names a <fingerprint>.plist
+ * (xbps-repository: ./xbps.sh keygen), shipped next to the committed keys in
+ * assets/xbps-keys/ (env/GuestSetup.kt installs them into the guest).
+ */
+abstract class ExtraXbpsKey : DefaultTask() {
+    @get:InputFiles
+    abstract val keys: ConfigurableFileCollection
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        val dir = outputDir.get().dir("xbps-keys").asFile
+        dir.mkdirs()
+        dir.listFiles()?.forEach { it.delete() }
+        for (key in keys.files) key.copyTo(File(dir, key.name))
+    }
+}
+
+// Package repository of the guest (xbps-repository); DN_XBPS_REPO overrides it
+val xbpsRepo: String = providers.environmentVariable("DN_XBPS_REPO")
+    .orElse("https://github.com/DroidNative/xbps-repository/releases/download/current").get()
+
+val extraXbpsKey = tasks.register<ExtraXbpsKey>("extraXbpsKey") {
+    providers.environmentVariable("DN_XBPS_KEY").orNull?.let { keys.from(it) }
+    outputDir.set(layout.buildDirectory.dir("generated/xbpsKeys"))
+}
+
 val generateLauncherIcons = tasks.register<GenerateLauncherIcons>("generateLauncherIcons") {
     logo.set(rootProject.layout.projectDirectory.file("docs/droidnativelogo.png"))
     outputDir.set(layout.buildDirectory.dir("generated/launcherIcons"))
@@ -58,6 +88,7 @@ val generateLauncherIcons = tasks.register<GenerateLauncherIcons>("generateLaunc
 androidComponents {
     onVariants { variant ->
         variant.sources.res?.addGeneratedSourceDirectory(generateLauncherIcons, GenerateLauncherIcons::outputDir)
+        variant.sources.assets?.addGeneratedSourceDirectory(extraXbpsKey, ExtraXbpsKey::outputDir)
     }
 }
 
@@ -78,6 +109,7 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "XBPS_REPO", "\"$xbpsRepo\"")
         ndk {
             abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")
         }
@@ -130,6 +162,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     packaging {

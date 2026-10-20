@@ -27,8 +27,6 @@ class EnvPaths(context: Context) {
 
     /** Fake /proc entries Android hides from apps. */
     val sysdataDir = File(filesDir, "sysdata")
-    /** Local xbps repository copied from APK assets. */
-    val localRepo = File(filesDir, "repo")
 
     val prootTmp = File(context.cacheDir, "proot")
     val downloads = File(context.cacheDir, "downloads")
@@ -39,7 +37,7 @@ class EnvPaths(context: Context) {
     val prootLoader32 = File(nativeLibDir, "libproot-loader32.so")
 
     fun ensureDirs() {
-        for (d in listOf(runDir, sysdataDir, prootTmp, downloads, logDir, localRepo))
+        for (d in listOf(runDir, sysdataDir, prootTmp, downloads, logDir))
             d.mkdirs()
     }
 
@@ -47,7 +45,6 @@ class EnvPaths(context: Context) {
         /** Guest-side mount point of [runDir]. */
         const val GUEST_RUN_DIR = "/run/droidnative"
         const val GUEST_WAYLAND_DISPLAY = "wayland-0"
-        const val GUEST_LOCAL_REPO = "/opt/droidnative/repo"
         /** Unprivileged guest account everything except package management runs as. */
         const val GUEST_USER = "user"
         const val GUEST_UID = 1000

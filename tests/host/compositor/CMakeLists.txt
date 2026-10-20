@@ -34,7 +34,7 @@ foreach(p xdg-shell linux-dmabuf-unstable-v1 xdg-decoration-unstable-v1
     list(APPEND GEN_CLIENT ${GEN}/${p}-client-protocol.h ${GEN}/${p}-protocol.c)
 endforeach()
 
-set(DN_XWM_XML ${REPO}/linux-side/srcpkgs/droidnative-tools/files/dn-xwm-v1.xml)
+set(DN_XWM_XML ${REPO}/guest-tools/dn-xwm-v1.xml)
 add_custom_command(
     OUTPUT ${GEN}/dn-xwm-v1-server-protocol.h ${GEN}/dn-xwm-v1-client-protocol.h ${GEN}/dn-xwm-v1-protocol.c
     COMMAND ${WAYLAND_SCANNER} server-header ${DN_XWM_XML} ${GEN}/dn-xwm-v1-server-protocol.h
@@ -61,6 +61,6 @@ add_executable(dnc-headless
 target_include_directories(dnc-headless PRIVATE ${CPP}/compositor ${GEN} ${WL_INCLUDE_DIRS})
 target_link_libraries(dnc-headless PRIVATE ${WL_LINK_LIBRARIES} pthread m)
 
-add_executable(dn-wltest ${REPO}/linux-side/srcpkgs/droidnative-tools/files/dn-wltest.c ${GEN_CLIENT})
+add_executable(dn-wltest ${REPO}/guest-tools/dn-wltest.c ${GEN_CLIENT})
 target_include_directories(dn-wltest PRIVATE ${GEN} ${WL_INCLUDE_DIRS})
 target_link_libraries(dn-wltest PRIVATE ${WL_LINK_LIBRARIES})
