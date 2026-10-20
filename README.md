@@ -122,7 +122,11 @@ the phone.
     touchpad cursor disappears and finger movement turns the view
     directly; a connected mouse is captured as well.
 - **All files access:** your phone storage appears in Linux at
-  `/media/sdcard`, memory cards at `/media/<card id>`.
+  `/media/sdcard`, memory cards at `/media/<card id>`. Like a USB stick on
+  a PC, files there have no permissions of their own; programs on it run.
+- **Disk images:** for Linux files on the phone storage or a memory card
+  that need permissions, links or upper and lower case (projects, source
+  code), create a disk image. It appears at `/mnt/<name>`.
 
 Changes to device access and storage apply after you stop and start the
 environment on the Overview tab.
@@ -221,7 +225,8 @@ The core components DroidNative builds on, with their sources:
 |---|---|---|---|
 | Void Linux | the Linux system (rootfs and packages) | https://voidlinux.org | various |
 | xbps, xbps-src | package manager, package builds | https://github.com/void-linux/xbps, https://github.com/void-linux/void-packages | BSD-2-Clause |
-| PRoot (Termux fork) | runs Linux without root; patched for Flatpak, V4L2 and more | https://github.com/termux/proot | GPL-2.0 |
+| PRoot (DroidNative fork of the Termux fork) | runs Linux without root; Flatpak, V4L2, FUSE, disk images and more | https://github.com/DroidNative/proot | GPL-2.0 |
+| SQLite | disk image database inside PRoot | https://sqlite.org | public domain |
 | talloc | PRoot dependency | https://talloc.samba.org | LGPL-3.0 |
 | libffi | libwayland dependency | https://github.com/libffi/libffi | MIT |
 | Wayland | compositor library and protocol code generator | https://gitlab.freedesktop.org/wayland/wayland | MIT |

@@ -40,11 +40,12 @@ use the native library directory, so there is one code path.
 
 **proot.** The Termux fork of proot emulates root, mounts, namespaces and
 hard links (as symlinks, `--link2symlink`) through ptrace. DroidNative
-patches it further (`native-host/patches/proot/`): bubblewrap and Flatpak
+builds its own fork of it (https://github.com/DroidNative/proot, commit
+pinned in `native-host/build.sh`): bubblewrap and Flatpak
 support, `fchmodat2`, SysV shared memory through memfd (Android denies
 `/dev/ashmem` to API 29+ apps), and the V4L2 camera devices. In the
-`pivot_root` emulation the mount that becomes the new root moves to `/`
-(patch 0005): bubblewrap pivots into a tmpfs mounted over `/tmp` and reads
+`pivot_root` emulation the mount that becomes the new root moves to `/`:
+bubblewrap pivots into a tmpfs mounted over `/tmp` and reads
 bind sources such as the X11 socket through `/oldroot/tmp`.
 
 **User.** Applications run as `user` (uid 1000, home `/home/user`);
@@ -186,8 +187,9 @@ active between activate and deactivate on the focused surface.
 
 ## AppImages
 
-No FUSE without root, so AppImages are unpacked once.
-`dn-appimage` (droidnative-tools) does the work in the guest: it finds the
+Installed AppImages are unpacked once (fast to start, no FUSE needed).
+Run directly, an AppImage also works: its runtime mounts itself through
+proot's FUSE emulation (see "Storage"). `dn-appimage` (droidnative-tools) does the work in the guest: it finds the
 squashfs payload behind the runtime's ELF section headers and unpacks it
 with unsquashfs (the runtime itself is only the fallback, older ones need
 `libz.so`), into `~/.local/share/droidnative/appimages/<id>`, and writes
@@ -234,8 +236,37 @@ AudioTrack part applies at once, the program part on its next start. The
 microphone works the other way round (`devices/MicBridge.kt`). A D-Bus
 session bus runs alongside (`assets/guest/session.sh`).
 
-With "All files access" granted, shared storage is bound at `/media/sdcard`
-and other volumes at `/media/<volume id>` (`env/StorageMounts.kt`).
+## Storage
+
+proot is built from the DroidNative fork (pinned commit of
+https://github.com/DroidNative/proot; `DN_PROOT_SRC=<checkout>
+native-host/build.sh` builds a local checkout instead). Its storage
+extension (`src/extension/dn_storage/`, documented in the fork's
+`doc/droidnative-storage.md`) adds three things, all enabled by
+`env/Proot.kt`:
+
+- FAT-like volumes: with "All files access" granted, shared storage is
+  bound at `/media/sdcard` and other volumes at `/media/<volume id>`
+  (`env/StorageMounts.kt`) with `--fat-bind`. Like vfat on a desktop,
+  everything there is owned by the user with mode 0755, chmod succeeds
+  without effect, and programs run although Android mounts all storage
+  noexec: proot copies executable mappings of such files into anonymous
+  memory (the kernel refuses PROT_EXEC on noexec mounts, binfmt handlers
+  never see them).
+- FUSE (`--fuse`): `/dev/fuse` and mount(2) of FUSE file systems are
+  emulated, read-only. proot speaks the FUSE protocol to the daemon and
+  copies what the guest reads into its temporary directory, where programs
+  can run. A FUSE mount goes away when its daemon quits; `FUSERMOUNT_PROG`
+  is `/usr/bin/true` in the guest, since fusermount can't work there.
+- Disk images (`env/DiskImages.kt`, Settings, Storage): folders
+  `DroidNative/images/<name>` on a volume, mounted at `/mnt/<name>`
+  (`--image`). A SQLite database (`dnimage.db`) holds every node (type,
+  mode, owner, symlink target, device number) and directory entry; file
+  contents sit in `data/` under UUID names, so the storage below needs
+  neither permissions nor case sensitivity. proot keeps a shadow tree of
+  the image in its temporary directory and rebuilds it when the
+  database's generation differs. Writes are limited by the storage:
+  about 18 new files per second on the Redmi's SD card; reads are fast.
 
 Cameras, sensors, location and microphone: see
 [device-passthrough.md](device-passthrough.md).
@@ -264,6 +295,14 @@ also needs the session bus, which only runs with the environment. On
 Adreno phones "Remove unused runtimes" also removes
 `org.freedesktop.Platform.GL.default`, since `FLATPAK_GL_DRIVERS` selects
 DroidNative's own extension.
+
+The store also opens Flatpak install links: the "Install" buttons of
+Flathub and other sites open `flatpak+https://.../<id>.flatpakref`, which
+FlatpakActivity handles (intent filter; downloaded `.flatpakref` files
+too). It fetches the file (https only, 64 KiB at most,
+`Flatpak.readRef`), shows the app's install sheet when a configured
+source serves it, else asks and runs `flatpak install --from`, which adds
+the source.
 
 **Presets** (`apps/Presets.kt`): the DroidNativePresets repository
 (github.com/DroidNative/DroidNativePresets) is kept unpacked in

@@ -184,6 +184,10 @@
     <string name="flatpak_preinstall_failed">The preset\'s preinstall script failed, so nothing was installed.</string>
     <string name="flatpak_preset_script_failed">The preset\'s postinstall script failed; its output is in the DroidNative logs.</string>
     <string name="flatpak_preset_applied">DroidNative settings from the app\'s preset were applied.</string>
+    <string name="flatpak_ref_title">Install %1$s?</string>
+    <string name="flatpak_ref_text">%1$s from %2$s. If DroidNative does not know this source yet, it is added.</string>
+    <string name="flatpak_ref_bad">Could not read this Flatpak link.</string>
+    <string name="flatpak_ref_no_env">Install the Linux environment in DroidNative first.</string>
     <string name="flatpak_bad_name">Names may contain letters, digits, dots, dashes and underscores.</string>
     <string name="flatpak_open_missing">The app has no entry to start it from.</string>
     <string name="app_add_home">Add to home screen</string>
@@ -298,6 +302,21 @@
     <string name="storage_access_off">Off. Linux only sees its own files.</string>
     <string name="storage_access_on">Mounted in Linux at:</string>
     <string name="storage_access_needs_permission">Android has not granted access to all files.</string>
+    <string name="disk_images">Disk images</string>
+    <string name="disk_images_hint">Folders in DroidNative/images on a storage volume, mounted in Linux at /mnt/&lt;name&gt;. Unlike the plain storage they keep permissions, owners, links and upper and lower case, and programs in them can run. They work with other phones and PCs only through DroidNative. Changes apply after restarting the environment.</string>
+    <string name="disk_images_none">No disk images.</string>
+    <string name="disk_image_create">Create disk image</string>
+    <string name="disk_image_create_ok">Create</string>
+    <string name="disk_image_name">Name</string>
+    <string name="disk_image_name_hint">Letters, digits, dots, dashes and underscores</string>
+    <string name="disk_image_location">Location</string>
+    <string name="disk_image_no_volume">No storage volume available.</string>
+    <string name="disk_image_create_failed">Could not create the image: %1$s</string>
+    <string name="disk_image_created">Created. Restart the environment to mount it.</string>
+    <string name="disk_image_delete">Delete</string>
+    <string name="disk_image_delete_title">Delete %1$s?</string>
+    <string name="disk_image_delete_confirm">All files in the disk image %1$s are deleted for good. Stop the environment first if a program uses them.</string>
+    <string name="disk_image_delete_failed">Some files of the image could not be deleted.</string>
     <string name="settings_restart_hint">Changes apply the next time the environment starts. Camera, microphone and location work while a DroidNative window is open (see docs/device-passthrough.md).</string>
 
     <!-- On-screen buttons -->

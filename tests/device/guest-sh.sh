@@ -49,7 +49,7 @@ export PROOT_L2S_DIR=$F/rootfs/.l2s
 mkdir -p $F/rootfs/.l2s
 [ -f $LIB/libproot-loader32.so ] && export PROOT_LOADER_32=$LIB/libproot-loader32.so
 mkdir -p $DATA/cache/proot
-exec $LIB/libproot.so ${DN_PROOT_ARGS:-} --kill-on-exit --link2symlink --sysvipc -L $ID \
+exec $LIB/libproot.so ${DN_PROOT_ARGS:-} --kill-on-exit --link2symlink --sysvipc -L --fuse $ID \
   --rootfs=$F/rootfs --cwd=$GHOME \
   --bind=/dev --bind=/proc --bind=/sys --bind=/dev/urandom:/dev/random \
   --bind=/proc/self/fd:/dev/fd \

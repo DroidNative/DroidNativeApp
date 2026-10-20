@@ -11,13 +11,17 @@ a phone over adb.
 | Host per-app environment | `tests/host/appenv/run.sh` | `libdn-appenv` and dn-gl: which child programs keep an application's settings, `--no-sandbox` for Chromium based programs (PC guest of `.cache/hostproot`) |
 | Host notifications | `tests/host/notify/run.sh` | dn-notifyd: notifications (actions, hints, expiry, dismiss) and an MPRIS player relayed over the bridge socket; private bus in the PC guest (needs glib-devel, json-glib-devel, python3-gobject there) |
 | Host guest chroot | `tests/host/guest/chroot.sh <rootfs> <rundir> <cmd>` | runs guest scripts (`setup.sh`) in a Void rootfs on the PC |
+| proot storage extension | `tests/droidnative/run.sh <build dir>` in the proot fork | exec from noexec mounts, FAT-like volumes, FUSE emulation, disk images (PC, guest is the PC itself) |
 | Device suite | `tests/device/run.sh` | everything on real hardware, see below |
 
 ## Building
 
-1. `native-host/build.sh`: proot, libffi and libwayland-server for all four
-   ABIs with the NDK (r29, path from `local.properties`). Needs `curl`, `git`,
-   `make`, `python3`, a host C compiler and libexpat headers.
+1. `native-host/build.sh`: proot (the pinned commit of
+   https://github.com/DroidNative/proot, with SQLite), libffi and
+   libwayland-server for all four ABIs with the NDK (r29, path from
+   `local.properties`). Needs `curl`, `git`, `make`, `rsync`, `python3`, a
+   host C compiler and libexpat headers. `DN_PROOT_SRC=<checkout>` builds a
+   local proot checkout instead.
 2. `linux-side/build-packages.sh [-a arch]`: Void packages from
    `linux-side/srcpkgs/` (Turnip for KGSL, `droidnative-tools`), built in
    Docker with xbps-src. Output goes to `app/src/main/assets/repo/<arch>/`.

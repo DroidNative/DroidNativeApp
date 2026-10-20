@@ -58,8 +58,7 @@ on a 64-bit PRoot. Frames are in sensor orientation, which is landscape on
 phones; Android's `SENSOR_ORIENTATION` is not applied.
 
 How it works: `/dev/videoN` is a FIFO (`files/dev/videoN`). PRoot's
-extension (`native-host/patches/proot/0003-fchmodat2-v4l2-devices-memfd-shm.patch`,
-`src/extension/dn_v4l2/`) recognises descriptors of these FIFOs and answers
+extension (`src/extension/dn_v4l2/` in the proot fork) recognises descriptors of these FIFOs and answers
 the ioctls itself. `mmap` of a buffer becomes anonymous memory. On first use
 it connects to `files/dev/videoN.sock`, where the app sends a hello record
 and the frame memory (`videoN.shm`) as a descriptor. `STREAMON`/`STREAMOFF`

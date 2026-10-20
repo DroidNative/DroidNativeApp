@@ -65,6 +65,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.droidnative.env.Prefs
 import app.droidnative.env.Session
 import app.droidnative.env.StorageMounts
+import app.droidnative.env.DiskImages
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.RadioButton
+import androidx.compose.foundation.selection.selectable
 
 /** Settings tab: device passthrough and storage access. */
 @Composable
@@ -101,6 +105,7 @@ fun SettingsScreen() {
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         SectionTitle(R.string.settings_storage)
         StorageRow(resumed)
+        DiskImageSettings(resumed)
 
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         SectionTitle(R.string.settings_presets)
@@ -216,6 +221,112 @@ private fun StorageRow(resumed: Int) {
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+    }
+}
+
+/**
+ * Disk images (env/DiskImages.kt): list, create, delete. Only with all
+ * files access, since they live on the storage volumes.
+ */
+@Composable
+private fun DiskImageSettings(resumed: Int) {
+    val context = LocalContext.current
+    val prefs = remember { Prefs(context) }
+    val scope = rememberCoroutineScope()
+    var version by remember { mutableIntStateOf(0) }
+    val available = remember(resumed, version) { prefs.storageAccess && StorageMounts.hasAccess(context) }
+    if (!available) return
+    val images = remember(resumed, version) { DiskImages.active(context) }
+    var creating by rememberSaveable { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf<DiskImages.Image?>(null) }
+    var busy by remember { mutableStateOf(false) }
+
+    Text(stringResource(R.string.disk_images), Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp),
+        style = MaterialTheme.typography.bodyLarge)
+    Hint(R.string.disk_images_hint)
+    Column(Modifier.padding(horizontal = 16.dp)) {
+        if (images.isEmpty())
+            Text(stringResource(R.string.disk_images_none), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        for (image in images) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(image.name, style = MaterialTheme.typography.bodyMedium)
+                    Text("${image.guest}/  <-  ${image.volume.guest}/${DiskImages.FOLDER}/${image.name}",
+                        style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                TextButton({ deleting = image }, enabled = !busy) { Text(stringResource(R.string.disk_image_delete)) }
+            }
+        }
+        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 4.dp))
+        OutlinedButton({ creating = true }, enabled = !busy) { Text(stringResource(R.string.disk_image_create)) }
+    }
+
+    if (creating) {
+        val volumes = remember { StorageMounts.active(context) }
+        var name by rememberSaveable { mutableStateOf("") }
+        var volume by rememberSaveable { mutableIntStateOf(volumes.size - 1) }
+        var error by remember { mutableStateOf<String?>(null) }
+        AlertDialog(
+            onDismissRequest = { creating = false },
+            title = { Text(stringResource(R.string.disk_image_create)) },
+            text = {
+                Column {
+                    OutlinedTextField(name, { name = it.trim(); error = null },
+                        label = { Text(stringResource(R.string.disk_image_name)) }, singleLine = true,
+                        isError = error != null,
+                        supportingText = { Text(error ?: stringResource(R.string.disk_image_name_hint)) })
+                    Text(stringResource(R.string.disk_image_location), Modifier.padding(top = 8.dp),
+                        style = MaterialTheme.typography.labelLarge)
+                    volumes.forEachIndexed { i, v ->
+                        Row(Modifier.fillMaxWidth().selectable(volume == i, role = Role.RadioButton) { volume = i },
+                            verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(volume == i, null)
+                            Text(v.guest, Modifier.padding(start = 8.dp), fontFamily = FontFamily.Monospace)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton({
+                    val v = volumes.getOrNull(volume)
+                    error = when {
+                        v == null -> context.getString(R.string.disk_image_no_volume)
+                        !DiskImages.validName(name) -> context.getString(R.string.disk_image_name_hint)
+                        else -> DiskImages.create(context, v, name)
+                            ?.let { context.getString(R.string.disk_image_create_failed, it) }
+                    }
+                    if (error == null) {
+                        creating = false
+                        version++
+                        Toast.makeText(context, R.string.disk_image_created, Toast.LENGTH_LONG).show()
+                    }
+                }) { Text(stringResource(R.string.disk_image_create_ok)) }
+            },
+            dismissButton = { TextButton({ creating = false }) { Text(stringResource(android.R.string.cancel)) } },
+        )
+    }
+
+    deleting?.let { image ->
+        AlertDialog(
+            onDismissRequest = { deleting = null },
+            title = { Text(stringResource(R.string.disk_image_delete_title, image.name)) },
+            text = { Text(stringResource(R.string.disk_image_delete_confirm, image.name)) },
+            confirmButton = {
+                TextButton({
+                    deleting = null
+                    busy = true
+                    scope.launch {
+                        val ok = withContext(Dispatchers.IO) { DiskImages.delete(image) }
+                        busy = false
+                        version++
+                        if (!ok) Toast.makeText(context, R.string.disk_image_delete_failed, Toast.LENGTH_LONG).show()
+                    }
+                }) { Text(stringResource(R.string.disk_image_delete)) }
+            },
+            dismissButton = { TextButton({ deleting = null }) { Text(stringResource(android.R.string.cancel)) } },
+        )
     }
 }
 

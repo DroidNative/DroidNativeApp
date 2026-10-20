@@ -1,6 +1,7 @@
 package app.droidnative.apps
 
 import android.content.Context
+import android.net.Uri
 import android.util.Log
 import android.util.Xml
 import app.droidnative.R
@@ -12,6 +13,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import org.xmlpull.v1.XmlPullParser
 import java.io.File
 import java.io.InputStream
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.zip.GZIPInputStream
 import kotlin.concurrent.thread
 
@@ -312,6 +315,96 @@ object Flatpak {
             catalogueCache = null
             null
         }
+
+    /* .flatpakref (the "Install" buttons of Flathub and other sites) */
+
+    /** An app or runtime and the repository it comes from. */
+    data class Ref(val name: String, val branch: String, val url: String, val title: String,
+                   val isRuntime: Boolean, val text: String)
+
+    private const val REF_MAX = 64 * 1024
+
+    /** Parses a .flatpakref file; null if it isn't a usable one. */
+    fun parseRef(text: String): Ref? {
+        val keys = HashMap<String, String>()
+        var inGroup = false
+        for (raw in text.lineSequence()) {
+            val line = raw.trim()
+            if (line.startsWith("[")) { inGroup = line == "[Flatpak Ref]"; continue }
+            if (!inGroup || line.startsWith("#")) continue
+            val eq = line.indexOf('=')
+            if (eq > 0) keys[line.substring(0, eq).trim()] = line.substring(eq + 1).trim()
+        }
+        val name = keys["Name"] ?: return null
+        val url = keys["Url"] ?: return null
+        if (!validName(name) || !url.startsWith("https://")) return null
+        return Ref(name, keys["Branch"] ?: "", url, keys["Title"]?.takeIf { it.isNotEmpty() } ?: name,
+            keys["IsRuntime"].equals("true", true), text)
+    }
+
+    /**
+     * Reads the .flatpakref behind [uri]: a flatpak+https:// link (what the
+     * sites' buttons open), an https URL or a downloaded file.
+     * Throws on errors.
+     */
+    fun readRef(context: Context, uri: Uri): Ref {
+        val bytes = when (uri.scheme) {
+            "flatpak+https", "https" -> {
+                val url = URL("https:" + uri.toString().substringAfter(':'))
+                val conn = url.openConnection() as HttpURLConnection
+                conn.connectTimeout = 15_000
+                conn.readTimeout = 15_000
+                try {
+                    if (conn.responseCode != 200) throw RuntimeException("HTTP ${conn.responseCode}")
+                    conn.inputStream.use { readCapped(it) }
+                } finally { conn.disconnect() }
+            }
+            "content", "file" -> context.contentResolver.openInputStream(uri)?.use { readCapped(it) }
+                ?: throw RuntimeException("cannot open $uri")
+            else -> throw RuntimeException("unsupported link $uri")
+        }
+        return parseRef(String(bytes)) ?: throw RuntimeException("not a .flatpakref")
+    }
+
+    private fun readCapped(input: InputStream): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        val buf = ByteArray(8192)
+        while (true) {
+            val n = input.read(buf)
+            if (n < 0) break
+            out.write(buf, 0, n)
+            if (out.size() > REF_MAX) throw RuntimeException("file too large")
+        }
+        return out.toByteArray()
+    }
+
+    /** The configured source that serves the repository of [ref], if any. */
+    fun remoteFor(remotes: List<Remote>, ref: Ref): Remote? =
+        remotes.firstOrNull { !it.disabled && it.url.trimEnd('/') == ref.url.trimEnd('/') }
+
+    /** Installs [ref]; flatpak adds its source when there is none yet. */
+    fun installRef(context: Context, ref: Ref) = start(context, context.getString(R.string.flatpak_job_install, ref.title)) { onLine ->
+        Presets.refresh(context)
+        if (!ref.isRuntime && !Presets.preinstall(context, Presets.Source.FLATPAK, ref.name))
+            throw RuntimeException(context.getString(R.string.flatpak_preinstall_failed))
+        val rootfs = EnvPaths(context).rootfs
+        val file = File(rootfs, "tmp/dn-${ref.name}.flatpakref")
+        file.parentFile?.mkdirs()
+        file.writeText(ref.text)
+        try {
+            runOrThrow(context, onLine, "install", "--user", "-y", "--noninteractive", "--from", "/tmp/${file.name}")
+        } finally {
+            file.delete()
+        }
+        catalogueCache = null
+        val applied = if (ref.isRuntime) null else Presets.postinstall(context, Presets.Source.FLATPAK, ref.name)
+        when {
+            applied == null -> null
+            applied.scriptFailed -> context.getString(R.string.flatpak_preset_script_failed)
+            applied.any -> context.getString(R.string.flatpak_preset_applied)
+            else -> null
+        }
+    }
 
     fun removeRemote(context: Context, name: String) =
         start(context, context.getString(R.string.flatpak_job_remove_remote, name)) { onLine ->

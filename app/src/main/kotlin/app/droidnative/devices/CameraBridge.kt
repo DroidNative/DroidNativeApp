@@ -30,7 +30,8 @@ import java.nio.channels.FileChannel
  * One phone camera as /dev/video<index> in the guest. PRoot's dn_v4l2
  * extension emulates the V4L2 device; this side captures with Camera2 and
  * hands frames over through shared memory plus a token FIFO. Protocol:
- * native-host/patches/proot (dn_v4l2_proto.h), docs/device-passthrough.md.
+ * src/extension/dn_v4l2/dn_v4l2_proto.h in the proot fork,
+ * docs/device-passthrough.md.
  */
 class CameraBridge(
     private val context: Context,

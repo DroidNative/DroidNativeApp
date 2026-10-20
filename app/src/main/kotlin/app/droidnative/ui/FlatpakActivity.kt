@@ -1,5 +1,7 @@
 package app.droidnative.ui
 
+import app.droidnative.env.EnvPaths
+import android.util.Log
 import android.content.Context
 import android.content.Intent
 import android.graphics.BitmapFactory
@@ -87,15 +89,45 @@ import java.io.File
  * "Manage Flatpaks" from the Install tab: the catalogue of the configured
  * sources (search, install), installed apps (open, update, remove) and the
  * sources themselves. Backend: apps/Flatpak.kt.
+ *
+ * Also opens .flatpakref links and files (the "Install" buttons of Flathub
+ * and other sites: flatpak+https://...), with that app's install sheet.
  */
 class FlatpakActivity : ComponentActivity() {
+    private val incoming = mutableStateOf<Uri?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        setContent { DroidNativeTheme { FlatpakScreen(onBack = ::finish) } }
+        // Pending until handled, also across a rotation
+        incoming.value = if (savedInstanceState == null) intent?.data
+                         else savedInstanceState.getString(KEY_INCOMING)?.let(Uri::parse)
+        if (!File(EnvPaths(this).rootfs, "usr/bin/flatpak").exists() && incoming.value != null) {
+            Toast.makeText(this, R.string.flatpak_ref_no_env, Toast.LENGTH_LONG).show()
+            finish()
+            return
+        }
+        setContent {
+            DroidNativeTheme {
+                FlatpakScreen(onBack = ::finish, incoming = incoming.value, onIncomingHandled = { incoming.value = null })
+            }
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        incoming.value?.let { outState.putString(KEY_INCOMING, it.toString()) }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        incoming.value = intent.data
     }
 
     companion object {
+        private const val KEY_INCOMING = "incoming"
+
         fun intent(context: Context) = Intent(context, FlatpakActivity::class.java)
     }
 }
@@ -121,7 +153,7 @@ private val LocalBusy = compositionLocalOf { false }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun FlatpakScreen(onBack: () -> Unit) {
+private fun FlatpakScreen(onBack: () -> Unit, incoming: Uri? = null, onIncomingHandled: () -> Unit = {}) {
     val context = LocalContext.current
     val job by Flatpak.job.collectAsStateWithLifecycle()
     val changes by Flatpak.changes.collectAsStateWithLifecycle()
@@ -146,6 +178,28 @@ private fun FlatpakScreen(onBack: () -> Unit) {
     LaunchedEffect(state?.catalogueMissing) {
         if (state?.catalogueMissing == true && !Flatpak.busy) Flatpak.refreshCatalogue(context)
     }
+    // A .flatpakref from a link or file: its install sheet, or a prompt when
+    // no configured source has it
+    var refPrompt by remember { mutableStateOf<Flatpak.Ref?>(null) }
+    LaunchedEffect(incoming, state != null) {
+        val uri = incoming ?: return@LaunchedEffect
+        val s = state ?: return@LaunchedEffect
+        val ref = withContext(Dispatchers.IO) {
+            runCatching { Flatpak.readRef(context, uri) }
+                .onFailure { Log.w("dn-flatpak", "cannot read $uri", it) }.getOrNull()
+        }
+        onIncomingHandled()
+        if (ref == null) {
+            Toast.makeText(context, R.string.flatpak_ref_bad, Toast.LENGTH_LONG).show()
+            return@LaunchedEffect
+        }
+        val remote = Flatpak.remoteFor(s.remotes, ref)
+        val app = s.catalogue.firstOrNull { it.id == ref.name && it.remote == remote?.name }
+        val installed = s.installed.firstOrNull { it.id == ref.name }
+        if (app != null || installed != null) subject = Subject(app, installed)
+        else refPrompt = ref
+    }
+
     fun checkUpdates() {
         checking = true
         scope.launch {
@@ -188,6 +242,20 @@ private fun FlatpakScreen(onBack: () -> Unit) {
             }
         }
         }
+    }
+
+    refPrompt?.let { ref ->
+        AlertDialog(
+            onDismissRequest = { refPrompt = null },
+            title = { Text(stringResource(R.string.flatpak_ref_title, ref.title)) },
+            text = { Text(stringResource(R.string.flatpak_ref_text, ref.name, ref.url)) },
+            confirmButton = {
+                TextButton({ Flatpak.installRef(context, ref); refPrompt = null }, enabled = job?.running != true) {
+                    Text(stringResource(R.string.flatpak_install))
+                }
+            },
+            dismissButton = { TextButton({ refPrompt = null }) { Text(stringResource(android.R.string.cancel)) } },
+        )
     }
 
     subject?.let { sub ->

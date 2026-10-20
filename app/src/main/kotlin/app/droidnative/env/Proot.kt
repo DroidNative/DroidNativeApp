@@ -54,6 +54,9 @@ class Proot(private val paths: EnvPaths) {
         // constantly behind the pipe sink (AudioOutput.kt); the "Audio
         // buffer" setting
         "PULSE_LATENCY_MSEC" to Prefs(paths.appContext).audioBufferMs.toString(),
+        // proot emulates FUSE and unmounts when the daemon quits; fusermount
+        // can't work there (the AppImage runtime calls it to unmount)
+        "FUSERMOUNT_PROG" to "/usr/bin/true",
     )
 
     private fun home(root: Boolean) = if (root) "/root" else EnvPaths.GUEST_HOME
@@ -77,6 +80,16 @@ class Proot(private val paths: EnvPaths) {
         args += "--cwd=$dir"
         for ((src, dst) in binds() + extraBinds)
             args += if (src == dst) "--bind=$src" else "--bind=$src:$dst"
+        // Storage volumes behave like vfat on a desktop (owned by the user,
+        // mode 0755, programs run although Android mounts them noexec);
+        // disk images keep POSIX semantics on them. FUSE is emulated, so
+        // AppImages and other FUSE file systems mount (proot fork,
+        // extension/dn_storage).
+        for (mount in StorageMounts.active(paths.appContext))
+            args += "--fat-bind=${mount.host.path}:${mount.guest}"
+        for (image in DiskImages.active(paths.appContext))
+            args += "--image=${image.dir.path}:${image.guest}"
+        args += "--fuse"
 
         // env -i gives the guest a clean environment independent of Android's
         args += "/usr/bin/env"
@@ -104,8 +117,6 @@ class Proot(private val paths: EnvPaths) {
         b += File(paths.filesDir, "shm").path to "/dev/shm"
         b += paths.runDir.path to EnvPaths.GUEST_RUN_DIR
         b += paths.localRepo.path to EnvPaths.GUEST_LOCAL_REPO
-        for (mount in StorageMounts.active(paths.appContext))
-            b += mount.host.path to mount.guest
         b += Devices.binds(paths)
         return b
     }
@@ -120,6 +131,8 @@ class Proot(private val paths: EnvPaths) {
         paths.ensureDirs()
         File(paths.filesDir, "shm").mkdirs()
         FakeSysdata.write(paths.sysdataDir)
+        for (image in DiskImages.active(paths.appContext))
+            File(paths.rootfs, image.guest.trimStart('/')).mkdirs()
         val pb = ProcessBuilder(command(guestArgv, extraEnv, cwd, extraBinds, root))
         val env = pb.environment()
         env.clear()

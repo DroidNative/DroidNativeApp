@@ -6,6 +6,8 @@
 # Usage: native-host/build.sh [abi...]
 #        default: arm64-v8a armeabi-v7a x86_64 x86 (x86* for the emulator)
 # Env:   ANDROID_NDK (default: <sdk.dir>/ndk/$NDK_VERSION)
+#        DN_PROOT_SRC: build proot from this local checkout of the
+#        DroidNative fork instead of the pinned commit (for proot work)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -17,14 +19,19 @@ NDK_VERSION="29.0.14206865"
 API=24
 
 # Pinned sources
-PROOT_REPO="https://github.com/termux/proot.git"
-PROOT_COMMIT="a179d3e8a4e045aaa1fb8cc3284f23509d96d353"
+# DroidNative fork of termux/proot (storage, V4L2, Flatpak support)
+PROOT_REPO="https://github.com/DroidNative/proot.git"
+PROOT_COMMIT="eb906a77c6632c1e69c367c9de289243cb909cab"
 TALLOC_VERSION="2.5.0"
 TALLOC_SHA256="912afa237510ae542a7733998eb18a12bcda35ab6729c8e2ddb43e8d0ebab007"
 WAYLAND_VERSION="1.26.0"
 WAYLAND_SHA256="64176eaa46e4969903e286f8e5ef8331affc17fdf03ac9b58381d2b23162b7a3"
 LIBFFI_VERSION="3.8.0"
 LIBFFI_SHA256="7da3e2d9a171eb0a038f592ecad3ff2bb2550f3496d87b3b29ad0cf4430c0db4"
+# Disk images of the fork's storage extension (amalgamation, SHA3 checked
+# against sqlite.org when pinned)
+SQLITE_VERSION="3540100"
+SQLITE_SHA256="926ef8d3eab93fbf6e06011901273eec076b25594a4e1cdadd50c987f4f6d64e"
 
 if [ -z "${ANDROID_NDK:-}" ]; then
     sdk="${ANDROID_SDK:-$(sed -n 's/^sdk.dir=//p' "$ROOT/local.properties" 2>/dev/null)}"
@@ -35,7 +42,10 @@ TC="$ANDROID_NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
 
 fetch_sources() {
     mkdir -p "$CACHE"
-    if [ ! -d "$CACHE/proot-src/.git" ]; then
+    # A cache from before the fork points at termux/proot
+    if [ -d "$CACHE/proot-src/.git" ]; then
+        git -C "$CACHE/proot-src" remote set-url origin "$PROOT_REPO"
+    else
         git clone -q "$PROOT_REPO" "$CACHE/proot-src"
     fi
     if ! git -C "$CACHE/proot-src" cat-file -e "$PROOT_COMMIT^{commit}" 2>/dev/null; then
@@ -61,6 +71,11 @@ fetch_tarball() {
     echo "$sum  $file" | sha256sum -c --quiet
     tar -xf "$file" -C "$CACHE"
     rm "$file"
+}
+
+fetch_sqlite_sources() {
+    fetch_tarball "https://www.sqlite.org/2026/sqlite-autoconf-$SQLITE_VERSION.tar.gz" \
+        "$SQLITE_SHA256" "sqlite-autoconf-$SQLITE_VERSION"
 }
 
 fetch_wayland_sources() {
@@ -189,38 +204,49 @@ build_talloc() {
 
 build_proot() {
     local abi="$1" bdir="$2"
-    # Per-ABI clone, reset to the pinned commit. git clean only ever touches
-    # files inside that clone, so no recursive rm is needed.
-    if [ ! -d "$bdir/proot/.git" ]; then
-        git clone -q "$CACHE/proot-src" "$bdir/proot"
+    if [ -n "${DN_PROOT_SRC:-}" ]; then
+        # Local checkout, copied as it is (nothing is ever deleted here: stale
+        # objects are rebuilt by make clean)
+        [ -f "$DN_PROOT_SRC/src/GNUmakefile" ] || { echo "no proot tree in $DN_PROOT_SRC" >&2; exit 1; }
+        mkdir -p "$bdir/proot-fork"
+        rsync -a --exclude .git "$DN_PROOT_SRC/" "$bdir/proot-fork/"
+        make -s -C "$bdir/proot-fork/src" clean >/dev/null 2>&1 || true
+        PROOT_BUILD="$bdir/proot-fork"
+    else
+        # Per-ABI clone, reset to the pinned commit. git clean only ever
+        # touches files inside that clone, so no recursive rm is needed.
+        if [ ! -d "$bdir/proot/.git" ]; then
+            git clone -q "$CACHE/proot-src" "$bdir/proot"
+        fi
+        git -C "$bdir/proot" fetch -q "$CACHE/proot-src" "$PROOT_COMMIT"
+        git -C "$bdir/proot" reset -q --hard "$PROOT_COMMIT"
+        git -C "$bdir/proot" clean -q -fdx
+        PROOT_BUILD="$bdir/proot"
     fi
-    git -C "$bdir/proot" fetch -q "$CACHE/proot-src" "$PROOT_COMMIT"
-    git -C "$bdir/proot" reset -q --hard "$PROOT_COMMIT"
-    git -C "$bdir/proot" clean -q -fdx
-    for p in "$ROOT"/native-host/patches/proot/*.patch; do
-        patch -s -p1 -d "$bdir/proot" < "$p"
-    done
+    local version="dn-${PROOT_COMMIT:0:12}"
+    [ -n "${DN_PROOT_SRC:-}" ] && version="dn-fork-$(git -C "$DN_PROOT_SRC" rev-parse --short=12 HEAD 2>/dev/null || echo local)"
     # The loader path is always passed at runtime through PROOT_LOADER /
     # PROOT_LOADER_32, the compiled-in default is never used.
     # Flags go through the environment so the makefile's += still applies.
-    CPPFLAGS="-I$bdir/talloc/include -DARG_MAX=131072 -DVERSION=\\\"dn-${PROOT_COMMIT:0:12}\\\"" \
+    CPPFLAGS="-I$bdir/talloc/include -DARG_MAX=131072 -DVERSION=\\\"$version\\\"" \
     LDFLAGS="-L$bdir/talloc -Wl,-z,max-page-size=16384" \
-    make -s -C "$bdir/proot/src" -j"$JOBS" proot \
+    make -s -C "$PROOT_BUILD/src" -j"$JOBS" proot \
         CC="$TC/$TRIPLE-clang" \
         STRIP="$TC/llvm-strip" \
         OBJCOPY="$TC/llvm-objcopy" \
         OBJDUMP="$TC/llvm-objdump" \
-        PROOT_UNBUNDLE_LOADER=/nonexistent
+        PROOT_UNBUNDLE_LOADER=/nonexistent \
+        SQLITE_DIR="$CACHE/sqlite-autoconf-$SQLITE_VERSION"
 }
 
 install_abi() {
     local abi="$1" bdir="$2"
     local dst="$OUT/$abi"
     mkdir -p "$dst"
-    "$TC/llvm-strip" -o "$dst/libproot.so" "$bdir/proot/src/proot"
-    cp "$bdir/proot/src/loader/loader" "$dst/libproot-loader.so"
-    if [ -f "$bdir/proot/src/loader/loader-m32" ]; then
-        cp "$bdir/proot/src/loader/loader-m32" "$dst/libproot-loader32.so"
+    "$TC/llvm-strip" -o "$dst/libproot.so" "$PROOT_BUILD/src/proot"
+    cp "$PROOT_BUILD/src/loader/loader" "$dst/libproot-loader.so"
+    if [ -f "$PROOT_BUILD/src/loader/loader-m32" ]; then
+        cp "$PROOT_BUILD/src/loader/loader-m32" "$dst/libproot-loader32.so"
     fi
     chmod 755 "$dst"/lib*.so
 }
@@ -229,6 +255,7 @@ main() {
     local abis=("$@")
     [ ${#abis[@]} -gt 0 ] || abis=(arm64-v8a armeabi-v7a x86_64 x86)
     fetch_sources
+    fetch_sqlite_sources
     fetch_wayland_sources
     build_host_scanner
     for abi in "${abis[@]}"; do
