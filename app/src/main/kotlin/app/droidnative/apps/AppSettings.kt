@@ -4,7 +4,7 @@ import android.content.Context
 import org.json.JSONObject
 
 /** OpenGL implementation for an application, see dn-gl in the guest. */
-enum class GlBackend(val arg: String) { AUTO("auto"), ZINK("zink"), GL4ES("gl4es"), LLVMPIPE("llvmpipe") }
+enum class GlBackend(val arg: String) { AUTO("auto"), ZINK("zink"), VIRGL("virgl"), GL4ES("gl4es"), LLVMPIPE("llvmpipe") }
 
 /** How touches on a window reach the Linux application. */
 enum class MouseMode {

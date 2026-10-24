@@ -19,6 +19,7 @@ types and fields are ignored, so either side can add to them.
 | `close` | `id` | the notification is gone (closed by its sender or expired) |
 | `player` | see below | a media player's full current state |
 | `player-gone` | `name` | the player left the bus |
+| `im-focus` | `active`, `pid` | a text field of an X11 program became active or inactive (see below) |
 
 `notify` carries what `org.freedesktop.Notifications.Notify` got:
 
@@ -61,6 +62,23 @@ player plays.
 | `closed` | `id` | dismissed by the user; emits `NotificationClosed` with reason 2 |
 | `media` | `name`, `cmd` | `play`, `pause`, `playpause`, `stop`, `next`, `previous`, `raise` |
 | `seek` | `name`, `trackid`, `position` | MPRIS `SetPosition`, in microseconds |
+| `im-commit` | `text` | keyboard text for the active text field (`CommitString`) |
+| `im-preedit` | `text` | text still being composed; empty clears it |
+
+## Input method
+
+X11 programs have no text-input protocol, so dn-notifyd is also a minimal
+Fcitx 5 input method (`org.fcitx.Fcitx5` on the session bus, interfaces
+`org.fcitx.Fcitx.InputMethod1` and `InputContext1`). GTK programs on X11 use
+it through the fcitx5-gtk module, which dn-xwm selects with the XSETTINGS
+value `Gtk/IMModule=fcitx` (only X11 clients read XSETTINGS); SDL through
+`SDL_IM_MODULE=fcitx`. `FocusIn`/`FocusOut` become `im-focus`; key events
+are never consumed. The app takes the toplevel whose Android window has
+focus as the one with the field (`Compositor.inputMethodFocus`). Text the
+keymap can type goes in as key presses (`WindowActivity.sendText`): Chromium
+ignores input method commits in password fields and only takes keys there.
+Other text (accents, emoji) and the preedit go back as
+`im-commit`/`im-preedit` instead of through text-input.
 
 ## Android side
 

@@ -6,12 +6,13 @@ a phone over adb.
 | Layer | Command | What it covers |
 |---|---|---|
 | JVM unit tests | `./gradlew testPlayDebugUnitTest` | tar extraction (GNU/pax, links), checksum list parsing, preset settings.ini |
-| Host compositor | `tests/host/compositor/run.sh` | Wayland protocol handling of the compositor core (null renderer, ASan/UBSan) with `dn-wltest` and `weston-simple-shm` |
+| Host compositor | `tests/host/compositor/run.sh` | Wayland protocol handling of the compositor core (null renderer, ASan/UBSan) with `dn-wltest` and `weston-simple-shm`; `dnc-decotest` checks the KDE decoration mode and the first-frame size report against a normal and a desktop mode compositor (`DNC_HEADLESS_DESKTOP=1`) |
 | Host camera emulation | `tests/host/v4l2/run.sh` | PRoot's V4L2 device emulation against a fake camera, `v4l2-ctl` as client (needs the PC proot build in `.cache/hostproot`) |
 | Host per-app environment | `tests/host/appenv/run.sh` | `libdn-appenv` and dn-gl: which child programs keep an application's settings, `--no-sandbox` for Chromium based programs (PC guest of `.cache/hostproot`) |
 | Host notifications | `tests/host/notify/run.sh` | dn-notifyd: notifications (actions, hints, expiry, dismiss) and an MPRIS player relayed over the bridge socket; private bus in the PC guest (needs glib-devel, json-glib-devel, python3-gobject there) |
 | Host guest chroot | `tests/host/guest/chroot.sh <rootfs> <rundir> <cmd>` | runs guest scripts (`setup.sh`) in a Void rootfs on the PC |
 | proot storage extension | `tests/droidnative/run.sh <build dir>` in the proot fork | exec from noexec mounts, FAT-like volumes, FUSE emulation, disk images (PC, guest is the PC itself) |
+| proot fork, other | `binfmt.sh`, `tracer.sh`, `net.sh`, `seccomp.sh` in the fork's `tests/droidnative/` (same argument) | binfmt_misc emulation, hidden TracerPid, generated `/proc/net/tcp`, SIGSYS of the program's own seccomp filter |
 | Device suite | `tests/device/run.sh` | everything on real hardware, see below |
 
 ## Building
@@ -67,7 +68,7 @@ Please send back the whole results directory after a run.
 | T01RootfsTest | device facts (GPU nodes, ABI, kernel), host executables, rootfs install |
 | T02ProotTest | proot exec from `nativeLibraryDir`, fake root, fork/exec speed, hard link emulation, shared storage |
 | T03GuestSetupTest | package installation, keymap, bubblewrap inside proot (needed by Flatpak) |
-| T04GraphicsTest | KGSL/dma-heap access from the guest, `vulkaninfo`, Zink (surfaceless) |
+| T04GraphicsTest | KGSL/dma-heap access from the guest, `vulkaninfo`, Zink (surfaceless), virgl (surfaceless) and gl4es on it where there is no Turnip |
 | T05CompositorTest | compositor with `dn-wltest`: wl_shm and dmabuf paths, a real window plus screenshot, hidden-window throttling |
 | T06VulkanWaylandTest | `vkcube` on Wayland: dmabuf (Turnip) path, `MESA_VK_WSI_DEBUG=sw` fallback, run without the present wait patch |
 | T07ZinkWaylandTest | GL through the `dn-gl` backends: Zink (GLES and desktop GL), gl4es, llvmpipe |
@@ -82,7 +83,13 @@ Please send back the whole results directory after a run.
 |---|---|---|
 | Fairphone 4 (Adreno 619) | aarch64 | everything passes; Vulkan is Turnip |
 | Redmi Note 8T (Adreno 610) | aarch64 | everything passes (Turnip needs TU_DEBUG=noconform, set automatically) |
-| Galaxy S5 (Adreno 330) | armv7l | no Turnip (a3xx): KGSL/Zink tests are skipped, Vulkan falls back to lavapipe, rendering is software only |
+| Galaxy S5 (Adreno 330) | armv7l | no Turnip (a3xx): Zink tests are skipped, Vulkan falls back to lavapipe, OpenGL is virgl on Android's driver |
+
+Turnip tests decide by the GPU model Android reports (`TestEnv.hasTurnipGpu`,
+Adreno 600 and up), not by `/dev/kgsl-3d0`. A 32-bit install on a 64-bit
+phone (`adb install --abi armeabi-v7a`) runs the armv7l environment there;
+the aarch64 one is parked in `files/parked-aarch64` meanwhile
+(`EnvPaths.matchArch`) and comes back with a 64-bit install.
 
 A failing test is still useful: the logs say how far the stack got.
 
@@ -116,10 +123,15 @@ so an open DroidNative window closes when a run starts.
 
 Shared storage (`/media/sdcard`, `/media/<volume id>`) needs "All files
 access" in the Settings tab; the suite switches it on for itself. It is not
-visible under `run-as`; to get files into the guest,
-stream them into the app's private repo dir:
-`adb exec-in run-as app.droidnative sh -c 'cat > files/repo/debug/x.xbps' < x.xbps`
-(appears as `/opt/droidnative/repo/debug/` in the guest).
+visible under `run-as`; to get files into the guest, stream them into the
+rootfs: `adb exec-in run-as app.droidnative sh -c 'cat > files/rootfs/tmp/x.xbps' < x.xbps`
+(`/tmp/x.xbps` in the guest; a directory of packages plus repodata
+installs with `xbps-install -R /tmp/<dir> <pkg>`, local repositories need no
+signature).
+
+x86 emulation: `tests/device/x86/build.sh` builds `hello-x86_64` and
+`hello-i386` on the PC; copied into the guest's `/tmp` they must print
+their greeting when box64 (or box86) is installed.
 
 `dn-wltest --lock` (package `droidnative-tools`) locks the pointer and
 prints at exit whether the lock was granted and how much relative and
@@ -127,6 +139,8 @@ absolute motion arrived; use it to check pointer capture in a window.
 
 ## OpenGL backends
 
-`dn-gl <auto|zink|gl4es|llvmpipe> <command>` (package `droidnative-tools`)
-picks the GL implementation for one program; per-app selection in the UI will
-use it. `auto` is Zink when a KGSL GPU exists, llvmpipe otherwise.
+`dn-gl <auto|zink|virgl|gl4es|llvmpipe> <command>` (package
+`droidnative-tools`) picks the GL implementation for one program; the per-app
+"Graphics backend" setting uses it. `auto` is Zink when Turnip drives the GPU,
+virgl when the app's virgl server runs, llvmpipe otherwise
+(docs/architecture.md, "Graphics").

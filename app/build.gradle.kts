@@ -107,7 +107,7 @@ android {
     defaultConfig {
         applicationId = "app.droidnative"
         versionCode = 1
-        versionName = "0.1.0"
+        versionName = "0.1-beta"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "XBPS_REPO", "\"$xbpsRepo\"")
         ndk {

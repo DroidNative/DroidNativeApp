@@ -21,7 +21,8 @@ file(MAKE_DIRECTORY ${GEN})
 set(GEN_SRC "")
 foreach(p xdg-shell linux-dmabuf-unstable-v1 xdg-decoration-unstable-v1
           text-input-unstable-v1 text-input-unstable-v3 xwayland-shell-v1
-          pointer-constraints-unstable-v1 relative-pointer-unstable-v1)
+          pointer-constraints-unstable-v1 relative-pointer-unstable-v1 viewporter
+          server-decoration)
     add_custom_command(
         OUTPUT ${GEN}/${p}-server-protocol.h ${GEN}/${p}-protocol.c
         COMMAND ${WAYLAND_SCANNER} server-header ${PROTO}/${p}.xml ${GEN}/${p}-server-protocol.h
@@ -52,6 +53,7 @@ add_library(droidnative SHARED
     compositor/seat.c
     compositor/output.c
     compositor/data_device.c
+    compositor/viewporter.c
     compositor/decoration.c
     compositor/text_input.c
     compositor/xwayland.c

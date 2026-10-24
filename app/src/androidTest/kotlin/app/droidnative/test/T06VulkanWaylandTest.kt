@@ -23,7 +23,7 @@ class T06VulkanWaylandTest {
         assertTrue(r.summary(), r.exitCode == 0 && s != null)
         assertTrue(r.summary(), s!!.framesPresented >= 300)
         assertTrue("cube not visible: ${r.summary()}", s.nonBlackSamples > 0)
-        if (TestEnv.hasKgsl)
+        if (TestEnv.hasTurnipGpu)
             assertTrue("expected dmabuf buffers on KGSL: ${r.summary()}", s.dmabufCommits > 0)
     }
 
@@ -39,7 +39,7 @@ class T06VulkanWaylandTest {
     /** Same as vkcubeDmabuf but without the CPU wait before present (tearing check) */
     @Test
     fun vkcubeWithoutPresentWait() {
-        if (!TestEnv.hasKgsl) return
+        if (!TestEnv.hasTurnipGpu) return
         val r = ClientRunner.run("vkcube-nowait", vkcube, mapOf("DN_TU_NO_PRESENT_WAIT" to "1"))
         TestEnv.report("vkcube-nowait", "informational only, compare visually / fps with vkcube")
         assertTrue(r.summary(), r.exitCode == 0)

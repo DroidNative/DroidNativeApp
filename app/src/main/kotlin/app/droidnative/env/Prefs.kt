@@ -73,6 +73,14 @@ class Prefs(context: Context) {
         get() = sp.getInt("audio_buffer_ms", DEFAULT_AUDIO_BUFFER).takeIf { it in AUDIO_BUFFERS } ?: DEFAULT_AUDIO_BUFFER
         set(v) = sp.edit().putInt("audio_buffer_ms", v).apply()
 
+    /**
+     * Desktop emulation: every Linux window opens in one Android window with
+     * a task bar (display/desktop/DesktopActivity.kt) instead of its own task.
+     */
+    var desktopEmulation: Boolean
+        get() = sp.getBoolean("desktop_emulation", false)
+        set(v) = sp.edit().putBoolean("desktop_emulation", v).apply()
+
     companion object {
         const val DEFAULT_PRESET_SOURCE = "https://github.com/DroidNative/DroidNativePresets"
         val AUDIO_BUFFERS = listOf(50, 100, 150, 250, 400)

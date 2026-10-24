@@ -65,6 +65,24 @@ static void bind_output(struct wl_client *c, void *data, uint32_t version, uint3
         }
     }
     send_mode(r, cfg, w, h);
+
+    // Surfaces that entered before this output was bound enter it too
+    struct dnc_surface *s;
+    wl_list_for_each(s, &srv->surfaces, link) {
+        if (s->entered && wl_resource_get_client(s->resource) == c)
+            wl_surface_send_enter(s->resource, r);
+    }
+}
+
+void dnc_output_enter_surface(struct dnc_server *srv, struct dnc_surface *s)
+{
+    struct wl_client *c = wl_resource_get_client(s->resource);
+    struct wl_resource *r;
+    s->entered = true;
+    wl_resource_for_each(r, &srv->outputs) {
+        if (wl_resource_get_client(r) == c)
+            wl_surface_send_enter(s->resource, r);
+    }
 }
 
 /* Each Android window is the client's whole screen: its outputs report the

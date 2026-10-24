@@ -181,9 +181,16 @@ class AppImages(context: Context) {
                 throw IOException(context.getString(R.string.appimage_not_appimage, name))
             val machine = (head[18].toInt() and 0xff) or ((head[19].toInt() and 0xff) shl 8)
             val arch = VoidArch.current()
-            if (machine != elfMachine(arch))
-                throw IOException(context.getString(R.string.appimage_wrong_arch, name, machineName(machine),
-                    arch.voidName))
+            if (machine != elfMachine(arch)) {
+                // x86 runs emulated when the emulator is installed (dn-appimage emulator_for)
+                val emu = emulatorFor(arch, machine)
+                if (emu == null)
+                    throw IOException(context.getString(R.string.appimage_wrong_arch, name, machineName(machine),
+                        arch.voidName))
+                if (!File(paths.rootfs, "usr/bin/$emu").exists())
+                    throw IOException(context.getString(R.string.appimage_needs_emulator, name, machineName(machine),
+                        emu))
+            }
             // Image plus unpacked tree, which is usually about twice as large
             if (size > 0) {
                 val free = StatFs(paths.rootfs.path).availableBytes
@@ -246,6 +253,13 @@ class AppImages(context: Context) {
             VoidArch.ARMV7L -> 40
             VoidArch.X86_64 -> 62
             VoidArch.I686 -> 3
+        }
+
+        /** Package whose binfmt rule runs [machine] programs on [arch], if any. */
+        private fun emulatorFor(arch: VoidArch, machine: Int) = when {
+            arch == VoidArch.AARCH64 && (machine == 62 || machine == 3) -> "box64"
+            arch == VoidArch.ARMV7L && machine == 3 -> "box86"
+            else -> null
         }
 
         private fun machineName(m: Int) = when (m) {

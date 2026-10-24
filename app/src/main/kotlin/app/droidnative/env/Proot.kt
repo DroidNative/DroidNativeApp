@@ -22,7 +22,14 @@ class Proot(private val paths: EnvPaths) {
      * [root] selects the fake root account (package management) instead of
      * the unprivileged guest user.
      */
-    fun guestEnv(root: Boolean = false): Map<String, String> = baseEnv(root) + gpuEnv()
+    fun guestEnv(root: Boolean = false): Map<String, String> = baseEnv(root) + gpuEnv() + virglEnv()
+
+    // Mesa's vtest client (GALLIUM_DRIVER=virpipe, dn-gl virgl) finds the
+    // server of env/Virgl.kt here
+    private fun virglEnv(): Map<String, String> =
+        if (paths.virglServer.exists())
+            mapOf("VTEST_SOCKET_NAME" to "${EnvPaths.GUEST_RUN_DIR}/${paths.virglSocket.name}")
+        else emptyMap()
 
     // Turnip hides Vulkan 1.1+ on Adreno without hardware multiview (a610,
     // a702) unless noconform is set; on other GPUs the flag changes nothing.
@@ -57,6 +64,15 @@ class Proot(private val paths: EnvPaths) {
         // proot emulates FUSE and unmounts when the daemon quits; fusermount
         // can't work there (the AppImage runtime calls it to unmount)
         "FUSERMOUNT_PROG" to "/usr/bin/true",
+        // Firefox: SELinux denies apps the reopen of a memfd through
+        // /proc/self/fd, so the parent process falls back to unsealed
+        // shm_open memory while its children use sealed memfds and reject
+        // the parent's (IPDL "PlatformHandle is not safe to map", SIGSEGV).
+        // This makes every process skip seals and check only the size.
+        "MOZ_SHM_NO_SEALS" to "1",
+        // SDL on X11: report text fields to dn-notifyd's input method, so
+        // the keyboard opens (on Wayland SDL uses text-input regardless)
+        "SDL_IM_MODULE" to "fcitx",
     )
 
     private fun home(root: Boolean) = if (root) "/root" else EnvPaths.GUEST_HOME

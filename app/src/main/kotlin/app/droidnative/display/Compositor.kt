@@ -5,6 +5,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import android.view.Surface
+import app.droidnative.bridge.Bridge
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -34,8 +35,15 @@ class Compositor {
 
     enum class TouchMode { POINTER, NATIVE }
 
-    /** [pid]: the Wayland client process (host pid), 0 if unknown. */
-    class Toplevel(val id: Int, @Volatile var appId: String, @Volatile var title: String, val pid: Int = 0)
+    /**
+     * [pid]: the Wayland client process (host pid), 0 if unknown.
+     * [width]/[height]: size of the first frame the program drew before it
+     * had a window (buffer pixels), 0 until known (see [Listener.onToplevelSize]).
+     */
+    class Toplevel(val id: Int, @Volatile var appId: String, @Volatile var title: String, val pid: Int = 0) {
+        @Volatile var width = 0
+        @Volatile var height = 0
+    }
 
     data class Stats(
         val commits: Long, val shmCommits: Long, val dmabufCommits: Long,
@@ -48,10 +56,17 @@ class Compositor {
         fun onToplevelNew(toplevel: Toplevel) {}
         fun onToplevelChanged(toplevel: Toplevel) {}
         fun onToplevelClosed(id: Int) {}
+        /** The program drew its first frame at its own size, [Toplevel.width] x [Toplevel.height]. */
+        fun onToplevelSize(toplevel: Toplevel) {}
         /** A text field of the toplevel wants (or no longer wants) text entry. */
         fun onTextInput(id: Int, active: Boolean) {}
         /** A program captured (locked) or released the pointer in the toplevel. */
         fun onPointerLock(id: Int, locked: Boolean) {}
+        /**
+         * Desktop emulation was switched on or off: windows move into the
+         * desktop or out of it into their own tasks (desktop/DesktopMode.kt).
+         */
+        fun onDesktopEmulation(enabled: Boolean) {}
     }
 
     val toplevels = ConcurrentHashMap<Int, Toplevel>()
@@ -81,6 +96,7 @@ class Compositor {
                 Log.e(TAG, "compositor creation failed")
                 return@Thread
             }
+            if (serverDecorations) nativeSetServerDecorations(h, true)
             val rc = nativeRun(h)
             Log.i(TAG, "compositor loop ended ($rc)")
             handle = 0L
@@ -105,11 +121,41 @@ class Compositor {
         thread = null
     }
 
-    fun attach(id: Int, surface: Surface, width: Int, height: Int) =
+    // Host that attached the toplevel's window last: a host going away (a
+    // window moving into the desktop or out of it) must not detach the
+    // window the next host already attached
+    private val owners = ConcurrentHashMap<Int, Any>()
+
+    fun attach(id: Int, surface: Surface, width: Int, height: Int, owner: Any) {
+        owners[id] = owner
         withHandle { nativeAttach(it, id, surface, width, height) }
-    fun detach(id: Int) = withHandle { nativeDetach(it, id) }
+    }
+    fun detach(id: Int, owner: Any) {
+        if (!owners.remove(id, owner)) return
+        withHandle { nativeDetach(it, id) }
+    }
+    /** True while some host shows the toplevel. */
+    fun isAttached(id: Int) = owners.containsKey(id)
     fun resize(id: Int, width: Int, height: Int) = withHandle { nativeResize(it, id, width, height) }
-    fun focus(id: Int, focused: Boolean) = withHandle { nativeFocus(it, id, focused) }
+
+    /**
+     * GTK 3 windows created from now on leave the title bar to Android
+     * (freeform and desktop windows have one) instead of drawing their own.
+     */
+    @Volatile var serverDecorations = false
+        set(v) {
+            if (field == v) return
+            field = v
+            withHandle { nativeSetServerDecorations(it, v) }
+        }
+    fun focus(id: Int, focused: Boolean) {
+        if (focused) focusedToplevel = id
+        else if (focusedToplevel == id) focusedToplevel = 0
+        withHandle { nativeFocus(it, id, focused) }
+    }
+
+    /** Toplevel whose Android window has focus, 0 if none. */
+    @Volatile private var focusedToplevel = 0
     fun close(id: Int) = withHandle { nativeClose(it, id) }
     /** Replaces the keyboard layout (compiled xkb keymap file) for all clients. */
     fun setKeymap(path: String) = withHandle { nativeSetKeymap(it, path) }
@@ -171,11 +217,44 @@ class Compositor {
         private set
 
     /** Text from the input method for the active text field. */
-    fun textCommit(id: Int, text: String) =
-        withHandle { nativeText(it, id, text.toByteArray(Charsets.UTF_8), false) }
+    fun textCommit(id: Int, text: String) {
+        if (id == imToplevel) Bridge.send("im-commit", "text" to text)
+        else withHandle { nativeText(it, id, text.toByteArray(Charsets.UTF_8), false) }
+    }
     /** Text still being composed; empty clears it. */
-    fun textPreedit(id: Int, text: String) =
-        withHandle { nativeText(it, id, text.toByteArray(Charsets.UTF_8), true) }
+    fun textPreedit(id: Int, text: String) {
+        if (id == imToplevel) Bridge.send("im-preedit", "text" to text)
+        else withHandle { nativeText(it, id, text.toByteArray(Charsets.UTF_8), true) }
+    }
+
+    /**
+     * Toplevel with a text field reported by dn-notifyd's input method
+     * (X11 programs, which have no text-input protocol), 0 if none. Its
+     * keyboard text goes back over the bridge.
+     */
+    @Volatile private var imToplevel = 0
+
+    /** True when [id]'s text field comes from dn-notifyd's input method. */
+    fun isInputMethodToplevel(id: Int) = id != 0 && id == imToplevel
+
+    /**
+     * A text field of an X11 program became active or inactive. The
+     * input method does not know the window; it is the focused one, since
+     * X11 focus follows the Android window.
+     */
+    fun inputMethodFocus(active: Boolean) {
+        if (active) {
+            val id = focusedToplevel
+            if (id == 0) return
+            imToplevel = id
+            onTextInput(id, true)
+        } else {
+            val id = imToplevel
+            if (id == 0) return
+            imToplevel = 0
+            if (textInputToplevel == id) onTextInput(id, false)
+        }
+    }
 
     fun stats(id: Int): Stats? {
         val h = handle
@@ -209,10 +288,25 @@ class Compositor {
         for (l in listeners) runCatching { l.onToplevelChanged(tl) }.onFailure { Log.e(TAG, "listener", it) }
     }
 
+    /** Tells the window hosts that desktop emulation changed (main thread). */
+    fun desktopEmulationChanged(enabled: Boolean) {
+        for (l in listeners) runCatching { l.onDesktopEmulation(enabled) }.onFailure { Log.e(TAG, "listener", it) }
+    }
+
+    @Suppress("unused")
+    private fun onToplevelSize(id: Int, width: Int, height: Int) {
+        val tl = toplevels[id] ?: return
+        tl.width = width
+        tl.height = height
+        Log.i(TAG, "toplevel $id first frame ${width}x$height")
+        for (l in listeners) runCatching { l.onToplevelSize(tl) }.onFailure { Log.e(TAG, "listener", it) }
+    }
+
     @Suppress("unused")
     private fun onToplevelClosed(id: Int) {
         Log.i(TAG, "toplevel $id closed")
         toplevels.remove(id)
+        owners.remove(id)
         for (l in listeners) runCatching { l.onToplevelClosed(id) }.onFailure { Log.e(TAG, "listener", it) }
     }
 
@@ -247,6 +341,7 @@ class Compositor {
     private external fun nativeClose(h: Long, id: Int)
     private external fun nativeKill(h: Long, id: Int)
     private external fun nativeSetKeymap(h: Long, path: String)
+    private external fun nativeSetServerDecorations(h: Long, server: Boolean)
     private external fun nativeTouch(h: Long, id: Int, action: Int, slot: Int, x: Float, y: Float, time: Int)
     private external fun nativePointerMotion(h: Long, id: Int, x: Float, y: Float, time: Int)
     private external fun nativePointerButton(h: Long, id: Int, button: Int, pressed: Boolean, time: Int)

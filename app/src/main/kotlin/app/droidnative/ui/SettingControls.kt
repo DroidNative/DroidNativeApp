@@ -161,6 +161,7 @@ fun mouseModeLabel(m: MouseMode?, default: String): String = when (m) {
 fun backendLabel(b: GlBackend?): String = when (b) {
     null, GlBackend.AUTO -> stringResource(R.string.backend_auto)
     GlBackend.ZINK -> stringResource(R.string.backend_zink)
+    GlBackend.VIRGL -> stringResource(R.string.backend_virgl)
     GlBackend.GL4ES -> stringResource(R.string.backend_gl4es)
     GlBackend.LLVMPIPE -> stringResource(R.string.backend_llvmpipe)
 }

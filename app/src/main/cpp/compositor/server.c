@@ -92,6 +92,7 @@ enum dnc_cmd_type {
     CMD_SET_KEYMAP,
     CMD_TEXT_COMMIT,
     CMD_TEXT_PREEDIT,
+    CMD_SET_DECORATIONS,
 };
 
 struct dnc_cmd {
@@ -156,7 +157,8 @@ static void replace_keymap(struct dnc_server *srv, const char *path);
 static void cmd_execute(struct dnc_server *srv, struct dnc_cmd *cmd)
 {
     struct dnc_toplevel *tl = NULL;
-    if (cmd->type != CMD_STOP && cmd->type != CMD_SET_KEYMAP) {
+    if (cmd->type != CMD_STOP && cmd->type != CMD_SET_KEYMAP &&
+        cmd->type != CMD_SET_DECORATIONS) {
         tl = dnc_toplevel_by_id(srv, cmd->id);
         if (!tl) {
             // The toplevel went away before the host saw the close callback
@@ -257,6 +259,9 @@ static void cmd_execute(struct dnc_server *srv, struct dnc_cmd *cmd)
     case CMD_SET_KEYMAP:
         if (cmd->text)
             replace_keymap(srv, cmd->text);
+        break;
+    case CMD_SET_DECORATIONS:
+        dnc_decoration_set_server(srv, cmd->flag);
         break;
     case CMD_TEXT_COMMIT:
         if (cmd->text)
@@ -402,6 +407,12 @@ void dnc_input_key(struct dnc_server *srv, uint32_t id, uint32_t key,
 void dnc_set_keymap(struct dnc_server *srv, const char *path)
 {
     struct dnc_cmd c = { .type = CMD_SET_KEYMAP, .text = strdup(path) };
+    cmd_push(srv, &c);
+}
+
+void dnc_set_server_decorations(struct dnc_server *srv, bool server)
+{
+    struct dnc_cmd c = { .type = CMD_SET_DECORATIONS, .flag = server };
     cmd_push(srv, &c);
 }
 
@@ -762,7 +773,8 @@ struct dnc_server *dnc_server_create(const struct dnc_config *config,
         !dnc_dmabuf_init(srv) || !dnc_seat_init(srv) ||
         !dnc_output_init(srv) || !dnc_data_device_init(srv) ||
         !dnc_decoration_init(srv) || !dnc_text_input_init(srv) ||
-        !dnc_xwayland_init(srv) || !dnc_constraints_init(srv))
+        !dnc_xwayland_init(srv) || !dnc_constraints_init(srv) ||
+        !dnc_viewporter_init(srv))
         goto fail;
 
     dnc_log(srv, DNC_LOG_INFO, "listening on %s (scale %d)", srv->socket_path,

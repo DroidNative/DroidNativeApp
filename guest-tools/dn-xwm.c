@@ -10,7 +10,8 @@
  * root origin and take the size of their Android window, except fixed-size
  * ones (minimum = maximum size), which keep theirs, and fullscreen ones
  * (_NET_WM_STATE_FULLSCREEN), which get the X screen's size: SDL draws for
- * that size without asking. The compositor zooms both to fit.
+ * that size without asking. The compositor zooms both to fit. It is also
+ * the XSETTINGS manager (only Gtk/IMModule, see setup_xsettings).
  *
  * Usage: dn-xwm [display]     default :0; exits when Xwayland does.
  */
@@ -61,6 +62,7 @@ enum {
     WL_SURFACE_SERIAL, WM_PROTOCOLS, WM_DELETE_WINDOW, WM_TAKE_FOCUS, WM_STATE,
     WM_CLASS_A, NET_WM_NAME, UTF8_STRING, NET_WM_PID, NET_ACTIVE_WINDOW,
     NET_SUPPORTING_WM_CHECK, NET_SUPPORTED, NET_WM_STATE, NET_WM_STATE_FULLSCREEN,
+    XSETTINGS_S0, XSETTINGS_SETTINGS, MANAGER,
     ATOM_COUNT
 };
 static const char *atom_names[ATOM_COUNT] = {
@@ -68,6 +70,7 @@ static const char *atom_names[ATOM_COUNT] = {
     "WM_STATE", "WM_CLASS", "_NET_WM_NAME", "UTF8_STRING", "_NET_WM_PID",
     "_NET_ACTIVE_WINDOW", "_NET_SUPPORTING_WM_CHECK", "_NET_SUPPORTED",
     "_NET_WM_STATE", "_NET_WM_STATE_FULLSCREEN",
+    "_XSETTINGS_S0", "_XSETTINGS_SETTINGS", "MANAGER",
 };
 static xcb_atom_t atoms[ATOM_COUNT];
 
@@ -558,6 +561,47 @@ static int start_xwayland(const char *display, int wm_fd)
     return n > 0 ? 0 : -1;
 }
 
+/* XSETTINGS */
+
+// Appends a string setting in the XSETTINGS wire format (little endian)
+static size_t xsettings_string(uint8_t *buf, const char *name, const char *value)
+{
+    size_t n = strlen(name), v = strlen(value), o = 0;
+    buf[o++] = 1;                                   // type string
+    buf[o++] = 0;
+    buf[o++] = n & 0xff; buf[o++] = n >> 8;
+    memcpy(buf + o, name, n); o += (n + 3) & ~(size_t)3;
+    memset(buf + o, 0, 4); o += 4;                  // last change serial
+    buf[o++] = v & 0xff; buf[o++] = (v >> 8) & 0xff; buf[o++] = 0; buf[o++] = 0;
+    memcpy(buf + o, value, v); o += (v + 3) & ~(size_t)3;
+    return o;
+}
+
+// X11 has no text-input protocol: GTK programs on X11 use the Fcitx 5
+// module (fcitx5-gtk), whose input method dn-notifyd provides. Only X11
+// clients read XSETTINGS, so GTK on Wayland keeps text-input.
+static void setup_xsettings(xcb_window_t owner)
+{
+    uint8_t buf[256] = { 0 };
+    size_t o = 12;
+    buf[0] = 0;                                     // LSBFirst
+    buf[8] = 1;                                     // one setting
+    o += xsettings_string(buf + o, "Gtk/IMModule", "fcitx");
+    xcb_change_property(xc, XCB_PROP_MODE_REPLACE, owner, atoms[XSETTINGS_SETTINGS],
+                        atoms[XSETTINGS_SETTINGS], 8, o, buf);
+    xcb_set_selection_owner(xc, owner, atoms[XSETTINGS_S0], XCB_CURRENT_TIME);
+
+    xcb_client_message_event_t ev = { 0 };
+    ev.response_type = XCB_CLIENT_MESSAGE;
+    ev.format = 32;
+    ev.window = root;
+    ev.type = atoms[MANAGER];
+    ev.data.data32[0] = XCB_CURRENT_TIME;
+    ev.data.data32[1] = atoms[XSETTINGS_S0];
+    ev.data.data32[2] = owner;
+    xcb_send_event(xc, 0, root, XCB_EVENT_MASK_STRUCTURE_NOTIFY, (const char *)&ev);
+}
+
 static void setup_wm(void)
 {
     const xcb_setup_t *setup = xcb_get_setup(xc);
@@ -605,6 +649,7 @@ static void setup_wm(void)
                                atoms[NET_WM_STATE], atoms[NET_WM_STATE_FULLSCREEN] };
     xcb_change_property(xc, XCB_PROP_MODE_REPLACE, root, atoms[NET_SUPPORTED],
                         XCB_ATOM_ATOM, 32, 5, supported);
+    setup_xsettings(check);
     xcb_flush(xc);
 }
 

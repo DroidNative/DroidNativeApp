@@ -51,6 +51,25 @@ struct dnc_subsurface {
     int32_t pending_x, pending_y;
 };
 
+/* wl_region: its add/subtract rectangles in order. A point is inside when
+ * the last rectangle containing it was added. More operations than fit
+ * make the region infinite (input everywhere, the default). */
+#define DNC_REGION_OPS 16
+struct dnc_region {
+    bool infinite;
+    int n;
+    struct { int32_t x, y, w, h; bool add; } ops[DNC_REGION_OPS];
+};
+bool dnc_region_contains(const struct dnc_region *r, double x, double y);
+
+/* wp_viewport state, double-buffered like the rest of the surface */
+struct dnc_viewport_state {
+    bool changed;                   // pending only
+    bool src_set;
+    wl_fixed_t src_x, src_y, src_w, src_h;
+    int32_t dst_w, dst_h;           // 0: unset
+};
+
 struct dnc_surface {
     struct dnc_server *server;
     struct wl_resource *resource;
@@ -63,11 +82,20 @@ struct dnc_surface {
         int32_t dx, dy;
         int32_t scale;
         struct wl_list frame_callbacks;
+        struct dnc_viewport_state viewport;
+        struct dnc_region input;
+        bool input_changed;
     } pending;
+
+    struct dnc_region input;        // input region, infinite by default
+
+    struct wl_resource *viewport;   // wp_viewport, NULL if none
+    struct dnc_viewport_state current_viewport;
 
     struct wl_list frame_callbacks; // waiting for the next present
     struct dnc_texture *texture;
     bool mapped;                    // has content
+    bool entered;                   // wl_surface.enter sent for the output
     int32_t buffer_width, buffer_height;
     int32_t scale;
 
@@ -133,6 +161,7 @@ struct dnc_toplevel {
     bool fullscreen;                     // client asked for fullscreen
     double logged_zoom;                  // last zoom reported in the log
     int32_t min_w, min_h, max_w, max_h;  // logical, 0 unset
+    bool size_reported;                  // toplevel_size callback sent
     struct dnc_stats stats;              // guarded by server->stats_lock
 };
 
@@ -202,6 +231,8 @@ struct dnc_server {
     struct wl_resource *xwm;             // dn_xwm_v1 of dn-xwm, NULL if none
     struct dnc_xwl_window *xwl_active;   // X toplevel that popups belong to
     bool text_input_active;              // last state told to the host
+    struct wl_list kde_decoration_managers;  // org_kde_kwin_server_decoration_manager
+    bool server_decorations;             // default mode "server" (decoration.c)
     uint32_t text_input_toplevel;
 
     struct wl_event_source *repaint_idle;
@@ -235,6 +266,10 @@ void dnc_seat_finish(struct dnc_server *srv);
 bool dnc_output_init(struct dnc_server *srv);
 bool dnc_data_device_init(struct dnc_server *srv);
 bool dnc_decoration_init(struct dnc_server *srv);
+void dnc_decoration_set_server(struct dnc_server *srv, bool server);
+bool dnc_viewporter_init(struct dnc_server *srv);
+void dnc_viewport_commit(struct dnc_surface *s);
+void dnc_viewport_surface_destroyed(struct dnc_surface *s);
 bool dnc_text_input_init(struct dnc_server *srv);
 bool dnc_xwayland_init(struct dnc_server *srv);
 bool dnc_constraints_init(struct dnc_server *srv);
@@ -244,6 +279,8 @@ bool dnc_pointer_locked(struct dnc_server *srv);
 // Movement for zwp_relative_pointer_v1 clients of the pointer focus
 void dnc_relative_motion(struct dnc_server *srv, double dx, double dy, uint32_t time_ms);
 void dnc_xwayland_finish(struct dnc_server *srv);
+// Tells @s that it is on the (only) output
+void dnc_output_enter_surface(struct dnc_server *srv, struct dnc_surface *s);
 void dnc_output_client_size(struct dnc_server *srv, struct wl_client *client,
                             int32_t width, int32_t height);
 

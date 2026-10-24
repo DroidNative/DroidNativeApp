@@ -123,6 +123,18 @@
             android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
             android:windowSoftInputMode="adjustResize|stateAlwaysHidden" />
 
+        <!-- Desktop emulation: all Linux windows in one task (display/desktop) -->
+        <activity
+            android:name=".display.desktop.DesktopActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|uiMode|density"
+            android:exported="false"
+            android:label="@string/desktop_label"
+            android:launchMode="singleTask"
+            android:resizeableActivity="true"
+            android:taskAffinity="app.droidnative.desktop"
+            android:theme="@android:style/Theme.DeviceDefault.NoActionBar"
+            android:windowSoftInputMode="adjustResize|stateAlwaysHidden" />
+
         <service
             android:name=".env.EnvService"
             android:exported="false"

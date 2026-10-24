@@ -43,6 +43,10 @@ struct dnc_callbacks {
     void (*toplevel_changed)(void *data, uint32_t id, const char *app_id,
                              const char *title);
     void (*toplevel_closed)(void *data, uint32_t id);
+    // First frame of a toplevel drawn before it had a host window: the size
+    // the program chose for itself, in window pixels (logical x scale). Lets
+    // the host open a freeform window of that size.
+    void (*toplevel_size)(void *data, uint32_t id, int32_t width, int32_t height);
     // A text field of the toplevel became active or inactive: show or hide
     // the on-screen keyboard. Repeated "active" means "show it again".
     void (*text_input)(void *data, uint32_t id, bool active);
@@ -133,6 +137,10 @@ void dnc_input_text_preedit(struct dnc_server *srv, uint32_t id, const char *tex
 
 // Replaces the xkb keymap (text file at path) for all clients.
 void dnc_set_keymap(struct dnc_server *srv, const char *path);
+
+// GTK 3 windows created from now on leave the title bar to the host (true:
+// freeform and desktop windows have their own) or draw their own (false).
+void dnc_set_server_decorations(struct dnc_server *srv, bool server);
 
 bool dnc_get_stats(struct dnc_server *srv, uint32_t id, struct dnc_stats *out);
 

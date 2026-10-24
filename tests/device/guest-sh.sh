@@ -24,13 +24,9 @@ shift $((OPTIND - 1))
 
 APK="$("${ADB[@]}" shell pm path "$PKG" | tr -d '\r' | sed -n 's/^package://p' | head -1)"
 [ -n "$APK" ] || { echo "$PKG not installed" >&2; exit 1; }
-ABI="$("${ADB[@]}" shell getprop ro.product.cpu.abi | tr -d '\r')"
-case "$ABI" in
-    arm64-v8a) LIBARCH=arm64 ;;
-    armeabi-v7a) LIBARCH=arm ;;
-    x86_64) LIBARCH=x86_64 ;;
-    x86) LIBARCH=x86 ;;
-esac
+# The ABI the app was installed as (adb install --abi may pick a 32-bit one
+# on a 64-bit phone): the one directory under lib/
+LIBARCH="$("${ADB[@]}" shell ls "$(dirname "$APK")/lib" | tr -d '\r' | head -1)"
 LIB="$(dirname "$APK")/lib/$LIBARCH"
 # /data/data is what the app sees as canonical (proot resolves symlinks);
 # keep it identical here so emulated hard links work from both sides.
@@ -62,8 +58,8 @@ exec $LIB/libproot.so ${DN_PROOT_ARGS:-} --kill-on-exit --link2symlink --sysvipc
   --bind=$F/sysdata/overflowgid:/proc/sys/kernel/overflowgid \
   --bind=$F/sysdata/pci:/proc/bus/pci \
   --bind=$F/sysdata/empty:/sys/fs/selinux --bind=$F/shm:/dev/shm \
-  --bind=$F/run:/run/droidnative --bind=$F/repo:/opt/droidnative/repo \
+  --bind=$F/run:/run/droidnative \
   /usr/bin/env -i HOME=$GHOME DISPLAY=:0 PATH=/usr/sbin:/usr/bin:/sbin:/bin LANG=C.UTF-8 \
   TERM=xterm XDG_RUNTIME_DIR=/run/droidnative WAYLAND_DISPLAY=wayland-0 \
-  PULSE_LATENCY_MSEC=150 ${DN_ENV:-} /bin/sh -c $CMD
+  PULSE_LATENCY_MSEC=150 VTEST_SOCKET_NAME=/run/droidnative/virgl.sock ${DN_ENV:-} /bin/sh -c $CMD
 '"

@@ -18,7 +18,7 @@
 #define DRM_FORMAT_XRGB8888 0x34325258
 #endif
 
-/* Regions (content is not used: input/opaque regions are ignored) */
+/* Regions (input regions are used, opaque regions ignored) */
 
 static void region_destroy(struct wl_client *c, struct wl_resource *r)
 {
@@ -26,17 +26,60 @@ static void region_destroy(struct wl_client *c, struct wl_resource *r)
     wl_resource_destroy(r);
 }
 
+static void region_op(struct wl_resource *r, int32_t x, int32_t y, int32_t w, int32_t h, bool add)
+{
+    struct dnc_region *rg = wl_resource_get_user_data(r);
+    if (rg->infinite)
+        return;
+    if (rg->n == DNC_REGION_OPS) {
+        rg->infinite = true;
+        return;
+    }
+    rg->ops[rg->n].x = x;
+    rg->ops[rg->n].y = y;
+    rg->ops[rg->n].w = w;
+    rg->ops[rg->n].h = h;
+    rg->ops[rg->n].add = add;
+    rg->n++;
+}
+
 static void region_add(struct wl_client *c, struct wl_resource *r,
                        int32_t x, int32_t y, int32_t w, int32_t h)
 {
-    (void)c; (void)r; (void)x; (void)y; (void)w; (void)h;
+    (void)c;
+    region_op(r, x, y, w, h, true);
+}
+
+static void region_subtract(struct wl_client *c, struct wl_resource *r,
+                            int32_t x, int32_t y, int32_t w, int32_t h)
+{
+    (void)c;
+    region_op(r, x, y, w, h, false);
 }
 
 static const struct wl_region_interface region_impl = {
     .destroy = region_destroy,
     .add = region_add,
-    .subtract = region_add,
+    .subtract = region_subtract,
 };
+
+static void region_resource_destroy(struct wl_resource *r)
+{
+    free(wl_resource_get_user_data(r));
+}
+
+bool dnc_region_contains(const struct dnc_region *r, double x, double y)
+{
+    if (r->infinite)
+        return true;
+    bool inside = false;
+    for (int i = 0; i < r->n; i++) {
+        if (x >= r->ops[i].x && y >= r->ops[i].y &&
+            x < (double)r->ops[i].x + r->ops[i].w && y < (double)r->ops[i].y + r->ops[i].h)
+            inside = r->ops[i].add;
+    }
+    return inside;
+}
 
 /* Surface helpers */
 
@@ -52,11 +95,19 @@ struct dnc_surface *dnc_surface_from_resource(struct wl_resource *resource)
 
 int32_t dnc_surface_width(const struct dnc_surface *s)
 {
+    if (s->current_viewport.dst_w > 0)
+        return s->current_viewport.dst_w;
+    if (s->current_viewport.src_set)
+        return wl_fixed_to_int(s->current_viewport.src_w);
     return s->scale > 0 ? s->buffer_width / s->scale : s->buffer_width;
 }
 
 int32_t dnc_surface_height(const struct dnc_surface *s)
 {
+    if (s->current_viewport.dst_h > 0)
+        return s->current_viewport.dst_h;
+    if (s->current_viewport.src_set)
+        return wl_fixed_to_int(s->current_viewport.src_h);
     return s->scale > 0 ? s->buffer_height / s->scale : s->buffer_height;
 }
 
@@ -296,10 +347,26 @@ static void surface_frame(struct wl_client *c, struct wl_resource *r,
     wl_list_insert(s->pending.frame_callbacks.prev, wl_resource_get_link(cb));
 }
 
-static void surface_set_region(struct wl_client *c, struct wl_resource *r,
-                               struct wl_resource *region)
+static void surface_set_opaque_region(struct wl_client *c, struct wl_resource *r,
+                                      struct wl_resource *region)
 {
     (void)c; (void)r; (void)region;
+}
+
+// Firefox gives its content subsurface an empty input region, so clicks
+// reach the GTK window below; GTK ignores events on the subsurface
+static void surface_set_input_region(struct wl_client *c, struct wl_resource *r,
+                                     struct wl_resource *region)
+{
+    (void)c;
+    struct dnc_surface *s = wl_resource_get_user_data(r);
+    if (region) {
+        s->pending.input = *(struct dnc_region *)wl_resource_get_user_data(region);
+    } else {
+        memset(&s->pending.input, 0, sizeof(s->pending.input));
+        s->pending.input.infinite = true;
+    }
+    s->pending.input_changed = true;
 }
 
 static void surface_commit(struct wl_client *c, struct wl_resource *r)
@@ -309,6 +376,11 @@ static void surface_commit(struct wl_client *c, struct wl_resource *r)
 
     if (s->pending.scale > 0)
         s->scale = s->pending.scale;
+    dnc_viewport_commit(s);
+    if (s->pending.input_changed) {
+        s->input = s->pending.input;
+        s->pending.input_changed = false;
+    }
 
     if (s->pending.attached) {
         apply_buffer(s, s->pending.buffer);
@@ -329,6 +401,11 @@ static void surface_commit(struct wl_client *c, struct wl_resource *r)
         if (s->role_data)
             dnc_xdg_surface_commit(s->role_data);
     }
+
+    // Toolkits take their scale from the outputs a surface entered (GTK,
+    // Firefox): without it Firefox drew for scale 2 into scale 1 buffers
+    if (!s->entered && s->role != DNC_ROLE_NONE && s->role != DNC_ROLE_CURSOR)
+        dnc_output_enter_surface(s->server, s);
 
     struct dnc_toplevel *tl = dnc_surface_get_toplevel(s);
     if (tl)
@@ -369,8 +446,8 @@ static const struct wl_surface_interface surface_impl = {
     .attach = surface_attach,
     .damage = surface_damage,
     .frame = surface_frame,
-    .set_opaque_region = surface_set_region,
-    .set_input_region = surface_set_region,
+    .set_opaque_region = surface_set_opaque_region,
+    .set_input_region = surface_set_input_region,
     .commit = surface_commit,
     .set_buffer_transform = surface_set_buffer_transform,
     .set_buffer_scale = surface_set_buffer_scale,
@@ -386,6 +463,7 @@ static void surface_resource_destroy(struct wl_resource *r)
     struct dnc_server *srv = s->server;
 
     dnc_seat_surface_destroyed(srv, s);
+    dnc_viewport_surface_destroyed(s);
 
     // Children lose their parent but stay alive until the client drops them
     struct dnc_subsurface *sub, *tmp;
@@ -435,6 +513,7 @@ static void compositor_create_surface(struct wl_client *c, struct wl_resource *r
     }
     s->server = srv;
     s->scale = 1;
+    s->input.infinite = true;
     wl_list_init(&s->pending.frame_callbacks);
     wl_list_init(&s->frame_callbacks);
     wl_list_init(&s->subsurfaces);
@@ -448,13 +527,15 @@ static void compositor_create_surface(struct wl_client *c, struct wl_resource *r
 static void compositor_create_region(struct wl_client *c, struct wl_resource *r,
                                      uint32_t id)
 {
-    struct wl_resource *region = wl_resource_create(c, &wl_region_interface, 1, id);
+    (void)r;
+    struct dnc_region *rg = calloc(1, sizeof(*rg));
+    struct wl_resource *region = rg ? wl_resource_create(c, &wl_region_interface, 1, id) : NULL;
     if (!region) {
+        free(rg);
         wl_client_post_no_memory(c);
         return;
     }
-    (void)r;
-    wl_resource_set_implementation(region, &region_impl, NULL, NULL);
+    wl_resource_set_implementation(region, &region_impl, rg, region_resource_destroy);
 }
 
 static const struct wl_compositor_interface compositor_impl = {

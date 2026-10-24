@@ -14,7 +14,7 @@ struct jni_ctx {
     struct dnc_server *srv;
     jobject owner;              // global ref to the Kotlin Compositor
     JNIEnv *env;                // valid on the compositor thread during run
-    jmethodID on_new, on_changed, on_closed, on_text_input, on_pointer_lock;
+    jmethodID on_new, on_changed, on_closed, on_size, on_text_input, on_pointer_lock;
 };
 
 /* Callbacks (compositor thread) */
@@ -60,6 +60,19 @@ static void on_closed(void *data, uint32_t id)
     if (!env)
         return;
     (*env)->CallVoidMethod(env, ctx->owner, ctx->on_closed, (jint)id);
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionDescribe(env);
+        (*env)->ExceptionClear(env);
+    }
+}
+
+static void on_size(void *data, uint32_t id, int32_t w, int32_t h)
+{
+    struct jni_ctx *ctx = data;
+    JNIEnv *env = ctx->env;
+    if (!env || !ctx->on_size)
+        return;
+    (*env)->CallVoidMethod(env, ctx->owner, ctx->on_size, (jint)id, (jint)w, (jint)h);
     if ((*env)->ExceptionCheck(env)) {
         (*env)->ExceptionDescribe(env);
         (*env)->ExceptionClear(env);
@@ -117,6 +130,7 @@ JNIEXPORT jlong JNICALL JFN(nativeCreate)(JNIEnv *env, jobject self,
     ctx->on_new = (*env)->GetMethodID(env, cls, "onToplevelNew", "(ILjava/lang/String;Ljava/lang/String;I)V");
     ctx->on_changed = (*env)->GetMethodID(env, cls, "onToplevelChanged", "(ILjava/lang/String;Ljava/lang/String;)V");
     ctx->on_closed = (*env)->GetMethodID(env, cls, "onToplevelClosed", "(I)V");
+    ctx->on_size = (*env)->GetMethodID(env, cls, "onToplevelSize", "(III)V");
     ctx->on_text_input = (*env)->GetMethodID(env, cls, "onTextInput", "(IZ)V");
     ctx->on_pointer_lock = (*env)->GetMethodID(env, cls, "onPointerLock", "(IZ)V");
     if (!ctx->on_new || !ctx->on_changed || !ctx->on_closed) {
@@ -144,6 +158,7 @@ JNIEXPORT jlong JNICALL JFN(nativeCreate)(JNIEnv *env, jobject self,
         .toplevel_new = on_new,
         .toplevel_changed = on_changed,
         .toplevel_closed = on_closed,
+        .toplevel_size = on_size,
         .text_input = on_text_input,
         .pointer_lock = on_pointer_lock,
         .log = on_log,
@@ -236,6 +251,13 @@ JNIEXPORT void JNICALL JFN(nativeSetKeymap)(JNIEnv *env, jobject self, jlong h, 
         return;
     dnc_set_keymap(SRV(h), p);
     (*env)->ReleaseStringUTFChars(env, path, p);
+}
+
+JNIEXPORT void JNICALL JFN(nativeSetServerDecorations)(JNIEnv *env, jobject self,
+    jlong h, jboolean server)
+{
+    (void)env; (void)self;
+    dnc_set_server_decorations(SRV(h), server);
 }
 
 JNIEXPORT void JNICALL JFN(nativeKill)(JNIEnv *env, jobject self, jlong h, jint id)

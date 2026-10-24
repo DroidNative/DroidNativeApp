@@ -156,12 +156,14 @@ private fun XbpsScreen(onBack: () -> Unit) {
             }
         }
     }
-    if (terminal) TerminalView { terminal = false }
+    if (terminal) XbpsTerminalView { terminal = false }
 }
 
+/** Progress of an xbps job; also on the Install tab (Steam). */
 @Composable
-private fun XbpsJobCard(job: Xbps.Job, onOutput: () -> Unit) {
-    OutlinedCard(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 12.dp)) {
+internal fun XbpsJobCard(job: Xbps.Job, modifier: Modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp),
+                         onOutput: () -> Unit) {
+    OutlinedCard(Modifier.fillMaxWidth().then(modifier)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -192,7 +194,7 @@ private fun XbpsJobCard(job: Xbps.Job, onOutput: () -> Unit) {
 
 /** The job's complete output, following new lines like a terminal. */
 @Composable
-private fun TerminalView(onClose: () -> Unit) {
+internal fun XbpsTerminalView(onClose: () -> Unit) {
     val lines by Xbps.output.collectAsStateWithLifecycle()
     val job by Xbps.job.collectAsStateWithLifecycle()
     Dialog(onClose, DialogProperties(usePlatformDefaultWidth = false)) {

@@ -21,6 +21,8 @@ import app.droidnative.bridge.Bridge
 import app.droidnative.devices.Devices
 import app.droidnative.display.Compositor
 import app.droidnative.display.WindowActivity
+import app.droidnative.display.WindowLauncher
+import app.droidnative.display.desktop.DesktopMode
 import kotlin.math.roundToInt
 
 /**
@@ -32,11 +34,7 @@ class EnvService : Service() {
     private val autoOpen = object : Compositor.Listener {
         override fun onToplevelNew(toplevel: Compositor.Toplevel) {
             if (!autoOpenWindows) return
-            try {
-                startActivity(WindowActivity.intent(this@EnvService, toplevel.id))
-            } catch (e: Exception) {
-                Log.w(TAG, "cannot open window for ${toplevel.id}", e)
-            }
+            WindowLauncher.open(this@EnvService, toplevel)
             // Android silently refuses activity starts from the background
             // (the app's own windows are not visible then): offer the window
             // as a notification instead, whose tap may open it
@@ -61,8 +59,8 @@ class EnvService : Service() {
         }
         val flags = PendingIntent.FLAG_UPDATE_CURRENT or
             (if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0)
-        val open = PendingIntent.getActivity(this, tl.id,
-            WindowActivity.intent(this, tl.id), flags)
+        val target = if (DesktopMode.enabled(this)) DesktopMode.intent(this) else WindowActivity.intent(this, tl.id)
+        val open = PendingIntent.getActivity(this, tl.id, target, flags)
         val name = tl.title.ifEmpty { tl.appId.ifEmpty { getString(R.string.window_unnamed) } }
         val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, WINDOW_CHANNEL)
                       else @Suppress("DEPRECATION") Notification.Builder(this)
@@ -81,6 +79,8 @@ class EnvService : Service() {
         super.onCreate()
         isRunning = true
         startInForeground()
+        // The desktop draws title bars; GTK reads this when it creates a window
+        compositor.serverDecorations = DesktopMode.enabled(this)
         compositor.addListener(autoOpen)
         // Before the session, whose dn-notifyd connects to it
         Bridge.start(this)
@@ -89,6 +89,7 @@ class EnvService : Service() {
         // xbps packages installed from a terminal since the last start
         app.droidnative.apps.Presets.checkXbpsInBackground(this)
         Services.start(this)
+        Virgl.start(this)
         // Linux keyboard layout follows a connected hardware keyboard
         app.droidnative.display.HardwareKeyboard.watch(this)
         Devices.start(this)
@@ -100,6 +101,7 @@ class EnvService : Service() {
         compositor.removeListener(autoOpen)
         Devices.stop()
         Services.stop()
+        Virgl.stop()
         Session.stop()
         Bridge.stop()
         compositor.stop()
@@ -108,18 +110,7 @@ class EnvService : Service() {
     }
 
     private fun startInForeground() {
-        val nm = getSystemService(NotificationManager::class.java)
-        if (Build.VERSION.SDK_INT >= 26) {
-            nm.createNotificationChannel(NotificationChannel(
-                CHANNEL, getString(R.string.channel_env), NotificationManager.IMPORTANCE_LOW))
-        }
-        val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(this, CHANNEL)
-                      else @Suppress("DEPRECATION") Notification.Builder(this)
-        val n = builder
-            .setSmallIcon(R.drawable.ic_penguin)
-            .setContentTitle(getString(R.string.env_running))
-            .setOngoing(true)
-            .build()
+        val n = buildNotification(this)
         if (Build.VERSION.SDK_INT >= 34)
             startForeground(NOTIFICATION_ID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         else
@@ -147,6 +138,38 @@ class EnvService : Service() {
 
         /** Open a WindowActivity for every new toplevel (tests turn this off). */
         @Volatile var autoOpenWindows = true
+
+        /**
+         * The ongoing notification. With desktop emulation it says so and a
+         * tap brings the desktop back, which keeps running when closed.
+         */
+        private fun buildNotification(context: Context): Notification {
+            val nm = context.getSystemService(NotificationManager::class.java)
+            if (Build.VERSION.SDK_INT >= 26) {
+                nm.createNotificationChannel(NotificationChannel(
+                    CHANNEL, context.getString(R.string.channel_env), NotificationManager.IMPORTANCE_LOW))
+            }
+            val builder = if (Build.VERSION.SDK_INT >= 26) Notification.Builder(context, CHANNEL)
+                          else @Suppress("DEPRECATION") Notification.Builder(context)
+            builder.setSmallIcon(R.drawable.ic_penguin).setOngoing(true)
+            if (DesktopMode.enabled(context)) {
+                val flags = PendingIntent.FLAG_UPDATE_CURRENT or
+                    (if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0)
+                builder.setContentTitle(context.getString(R.string.desktop_env_running))
+                    .setContentText(context.getString(R.string.desktop_env_reenter))
+                    .setContentIntent(PendingIntent.getActivity(context, 0, DesktopMode.intent(context), flags))
+            } else {
+                builder.setContentTitle(context.getString(R.string.env_running))
+            }
+            return builder.build()
+        }
+
+        /** Rewrites the ongoing notification (desktop emulation switched). */
+        fun updateNotification(context: Context) {
+            if (!isRunning) return
+            context.getSystemService(NotificationManager::class.java)
+                .notify(NOTIFICATION_ID, buildNotification(context))
+        }
 
         fun start(context: Context) {
             val i = Intent(context, EnvService::class.java)

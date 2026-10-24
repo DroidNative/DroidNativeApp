@@ -74,7 +74,7 @@ class T09FlatpakTest {
         val s = r.stats
         assertTrue(r.summary() + "\n" + r.output.takeLast(600),
             s != null && s.framesPresented >= 100 && s.nonBlackSamples > 0)
-        if (TestEnv.hasKgsl) {
+        if (TestEnv.hasTurnipGpu) {
             // Only Zink on Turnip (Vulkan WSI) hands the compositor dmabufs;
             // software GL would arrive as wl_shm. The renderer string is
             // informational, not every es2gears build prints it.

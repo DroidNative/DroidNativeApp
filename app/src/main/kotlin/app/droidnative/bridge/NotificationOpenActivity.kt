@@ -14,6 +14,7 @@ import app.droidnative.apps.LinuxApps
 import app.droidnative.apps.WindowSettings
 import app.droidnative.display.Compositor
 import app.droidnative.display.WindowActivity
+import app.droidnative.display.WindowLauncher
 import app.droidnative.env.EnvService
 
 /**
@@ -62,8 +63,7 @@ class NotificationOpenActivity : Activity(), Compositor.Listener {
     override fun onToplevelNew(toplevel: Compositor.Toplevel) {
         handler.post {
             if (!waiting || isFinishing) return@post
-            startActivity(WindowActivity.intent(this, toplevel.id))
-            finish()
+            WindowLauncher.open(this, toplevel) { finish() }
         }
     }
 

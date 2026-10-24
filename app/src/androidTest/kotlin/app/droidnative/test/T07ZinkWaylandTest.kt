@@ -46,7 +46,7 @@ class T07ZinkWaylandTest {
 
     @Test
     fun zinkGles() {
-        assumeTrue("no hardware Vulkan (KGSL) on this device", TestEnv.hasKgsl)
+        assumeTrue("no Turnip GPU on this device", TestEnv.hasTurnipGpu)
         val renderer = renderer("zink")
         assertTrue("renderer: $renderer", renderer?.contains("zink", ignoreCase = true) == true)
         val r = es2gears("zink")
@@ -55,7 +55,7 @@ class T07ZinkWaylandTest {
 
     @Test
     fun zinkDesktopGl() {
-        assumeTrue("no hardware Vulkan (KGSL) on this device", TestEnv.hasKgsl)
+        assumeTrue("no Turnip GPU on this device", TestEnv.hasTurnipGpu)
         val r = glmark2("zink")
         assertTrue(r.summary(), r.exitCode == 0 && (r.stats?.framesPresented ?: 0) >= 100)
     }

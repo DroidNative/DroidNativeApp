@@ -35,6 +35,44 @@ class EnvPaths(context: Context) {
     val proot = File(nativeLibDir, "libproot.so")
     val prootLoader = File(nativeLibDir, "libproot-loader.so")
     val prootLoader32 = File(nativeLibDir, "libproot-loader32.so")
+    /** virglrenderer's vtest server (env/Virgl.kt) and its socket in [runDir]. */
+    val virglServer = File(nativeLibDir, "libvirgl-server.so")
+    val virglSocket = File(runDir, "virgl.sock")
+
+    init {
+        synchronized(EnvPaths) {
+            if (!archChecked) {
+                archChecked = true
+                matchArch()
+            }
+        }
+    }
+
+    /**
+     * The app can run as another ABI than the rootfs was made for (the APK
+     * reinstalled with --abi, a 32-bit Android on a 64-bit phone restored
+     * from a backup). An environment of another architecture is parked in
+     * parked-<arch>/ instead of being run, and a parked one of this
+     * architecture comes back.
+     */
+    private fun matchArch() {
+        val arch = VoidArch.current().voidName
+        val marker = rootfsReady.takeIf { it.isFile }?.readText()?.trim() ?: ""
+        val own = Regex("^void-([a-z0-9_]+)-ROOTFS").find(marker)?.groupValues?.get(1)
+        if (own != null && own != arch) {
+            val park = File(filesDir, "parked-$own")
+            if (!park.exists() && park.mkdirs()) {
+                for (f in listOf(rootfs, rootfsReady, setupDone))
+                    if (f.exists()) f.renameTo(File(park, f.name))
+            }
+        }
+        val parked = File(filesDir, "parked-$arch")
+        if (parked.isDirectory && !rootfsReady.exists() && !rootfs.exists()) {
+            for (f in listOf(rootfs, rootfsReady, setupDone))
+                File(parked, f.name).takeIf { it.exists() }?.renameTo(f)
+            parked.delete()
+        }
+    }
 
     fun ensureDirs() {
         for (d in listOf(runDir, sysdataDir, prootTmp, downloads, logDir))
@@ -42,6 +80,8 @@ class EnvPaths(context: Context) {
     }
 
     companion object {
+        private var archChecked = false
+
         /** Guest-side mount point of [runDir]. */
         const val GUEST_RUN_DIR = "/run/droidnative"
         const val GUEST_WAYLAND_DISPLAY = "wayland-0"

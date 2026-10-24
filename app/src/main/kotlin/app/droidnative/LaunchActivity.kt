@@ -53,7 +53,7 @@ import app.droidnative.apps.DesktopEntry
 import app.droidnative.apps.LinuxApps
 import app.droidnative.apps.Shortcuts
 import app.droidnative.display.Compositor
-import app.droidnative.display.WindowActivity
+import app.droidnative.display.WindowLauncher
 import app.droidnative.env.EnvController
 import app.droidnative.env.EnvService
 import app.droidnative.ui.DroidNativeTheme
@@ -82,6 +82,8 @@ class LaunchActivity : ComponentActivity(), Compositor.Listener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Started from a freeform or desktop window: the app's window opens as one too
+        WindowLauncher.noteWindow(this)
         val id = intent.data?.takeIf { it.scheme == Shortcuts.SCHEME && it.host == Shortcuts.HOST_APP }
             ?.lastPathSegment
         EnvController.refresh(this)
@@ -208,10 +210,7 @@ class LaunchActivity : ComponentActivity(), Compositor.Listener {
     override fun onToplevelNew(toplevel: Compositor.Toplevel) {
         if (done || failure != null) return
         done = true
-        runOnUiThread {
-            startActivity(WindowActivity.intent(this, toplevel.id))
-            finish()
-        }
+        WindowLauncher.open(this, toplevel) { finish() }
     }
 
     companion object {

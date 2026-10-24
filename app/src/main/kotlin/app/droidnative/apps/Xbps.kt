@@ -54,7 +54,8 @@ object Xbps {
     }
 
     /** Packages DroidNative itself needs: not offered for removal. */
-    fun isProtected(name: String) = name.startsWith("droidnative-") || name in PROTECTED
+    fun isProtected(name: String) =
+        (name.startsWith("droidnative-") && name != "droidnative-steam") || name in PROTECTED
 
     private val PROTECTED = setOf("xbps", "base-system", "base-files", "glibc", "bash", "dash", "coreutils",
         "dbus", "pulseaudio", "flatpak", "bubblewrap", "xorg-server-xwayland", "mesa-turnip-kgsl", "gl4es",

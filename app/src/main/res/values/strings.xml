@@ -49,6 +49,12 @@
     <string name="install_native">Manage Native (xbps) Packages</string>
     <string name="install_native_title">Native packages</string>
     <string name="install_native_summary">Void Linux packages: search by name, description or file, install, update and remove.</string>
+    <string name="install_steam_title">Steam</string>
+    <string name="install_steam_summary">Valve\'s Steam client for Linux, run through the box64 x86 emulator. The first start downloads about 500 MB. Signing in works; games are untested and need a powerful device (box64 recommends 6 GB of RAM).</string>
+    <string name="install_steam">Install Steam</string>
+    <string name="install_steam_open">Open Steam</string>
+    <string name="install_steam_remove">Remove</string>
+    <string name="install_steam_unsupported">Steam needs a 64-bit ARM device.</string>
     <string name="install_needs_env">Install the Linux environment on the Overview tab first.</string>
     <string name="install_appimage_title">AppImages</string>
     <string name="install_appimage_summary">Programs packed as a single file. Pick one from the phone\'s storage; it is unpacked once and appears with the other applications.</string>
@@ -74,6 +80,7 @@
     <string name="appimage_cannot_open">Cannot open %1$s.</string>
     <string name="appimage_not_appimage">%1$s is not an AppImage.</string>
     <string name="appimage_wrong_arch">%1$s is built for %2$s, this phone runs %3$s.</string>
+    <string name="appimage_needs_emulator">%1$s is built for %2$s and runs emulated once %3$s is installed (Install tab, native packages).</string>
     <string name="appimage_no_space">Not enough free space: about %1$d MB needed, %2$d MB free.</string>
     <string name="back">Back</string>
     <string name="settings_presets">Presets</string>
@@ -288,6 +295,7 @@
     <string name="backend">Graphics backend</string>
     <string name="backend_auto">Automatic (Zink on Adreno)</string>
     <string name="backend_zink">Zink (OpenGL on Vulkan)</string>
+    <string name="backend_virgl">virgl (OpenGL on Android\'s GPU driver)</string>
     <string name="backend_gl4es">gl4es (OpenGL 2.1 on GLES)</string>
     <string name="backend_llvmpipe">llvmpipe (software)</string>
     <string name="rotation">Rotation</string>
@@ -397,4 +405,28 @@
     <string name="overlay_always_visible">None (always visible)</string>
     <string name="overlay_duplicate">Duplicate</string>
     <string name="overlay_delete_button">Delete</string>
+    <!-- Desktop emulation -->
+    <string name="desktop_label">Linux desktop</string>
+    <string name="desktop_env_running">Desktop environment is running</string>
+    <string name="desktop_env_reenter">Tap to reenter</string>
+    <string name="settings_desktop">Desktop</string>
+    <string name="desktop_mode">Desktop emulation mode</string>
+    <string name="desktop_mode_summary">Opens all Linux programs in one window with a task bar, like a desktop computer. For devices without freeform windows. Closing it keeps the programs running; the notification brings it back.</string>
+    <string name="desktop_open">Open desktop</string>
+    <string name="desktop_wallpaper">Wallpaper</string>
+    <string name="desktop_wallpaper_choose">Choose wallpaper</string>
+    <string name="desktop_wallpaper_reset">Default wallpaper</string>
+    <string name="desktop_wallpaper_failed">The image could not be used as wallpaper</string>
+    <string name="desktop_wallpaper_custom">Own image</string>
+    <string name="desktop_wallpaper_default">Default</string>
+    <string name="desktop_apps">Applications</string>
+    <string name="desktop_no_apps">No applications installed</string>
+    <string name="desktop_settings">DroidNative settings</string>
+    <string name="desktop_leave">Leave desktop</string>
+    <string name="desktop_keyboard">Keyboard</string>
+    <string name="desktop_collapse">Hide task bar</string>
+    <string name="desktop_expand">Show task bar</string>
+    <string name="window_minimise">Minimise</string>
+    <string name="window_maximise">Maximise</string>
+    <string name="window_close">Close</string>
 </resources>

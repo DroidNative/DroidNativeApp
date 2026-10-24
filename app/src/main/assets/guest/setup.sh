@@ -9,17 +9,23 @@ log() { echo "[setup] $*"; }
 # Base packages: graphics stack, test tools, Flatpak prerequisites, and the
 # default applications (terminal, file manager, text editor; more come from
 # the Install tab). librsvg-utils renders SVG icons for the overview.
+# fcitx5-gtk+3 lets GTK programs on X11 report text fields to dn-notifyd
+# (only the GTK module; dn-notifyd is the input method).
 PKGS="vulkan-loader mesa-dri mesa-vulkan-lavapipe Vulkan-Tools mesa-demos
  libxkbcommon-tools xkeyboard-config wayland dbus bubblewrap ca-certificates
  fontconfig dejavu-fonts-ttf noto-fonts-ttf noto-fonts-emoji liberation-fonts-ttf
  cantarell-fonts adwaita-icon-theme hicolor-icon-theme glmark2 squashfs-tools
  pulseaudio pulseaudio-utils alsa-plugins-pulseaudio
  xfce4-terminal Thunar mousepad librsvg-utils v4l-utils
- bash bash-completion sudo qt6-wayland xorg-server-xwayland font-misc-misc"
+ bash bash-completion sudo qt6-wayland xorg-server-xwayland font-misc-misc
+ fcitx5-gtk+3"
+# box64/box86 run x86 programs through proot's binfmt emulation (AppImages,
+# Steam). 32-bit ARM has no Flathub builds.
 case "$ARCH" in
-    aarch64) PKGS="$PKGS mesa-turnip-kgsl droidnative-tools gl4es flatpak droidnative-flatpak-gl" ;;
+    aarch64) PKGS="$PKGS mesa-turnip-kgsl droidnative-tools gl4es flatpak droidnative-flatpak-gl box64" ;;
+    armv7l) PKGS="$PKGS mesa-turnip-kgsl droidnative-tools gl4es box86" ;;
     x86_64) PKGS="$PKGS droidnative-tools gl4es flatpak" ;;
-    i686|armv7l) PKGS="$PKGS droidnative-tools gl4es" ;;   # no Flathub builds
+    i686) PKGS="$PKGS droidnative-tools gl4es" ;;
 esac
 
 missing() {

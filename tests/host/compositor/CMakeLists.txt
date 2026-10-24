@@ -1,5 +1,5 @@
 # Host (Linux desktop) build of the compositor core with the null renderer,
-# plus the dn-wltest client. Driven by tests/host/compositor/run.sh.
+# plus the dn-wltest and dnc-decotest clients. Driven by tests/host/compositor/run.sh.
 cmake_minimum_required(VERSION 3.16)
 project(dnc_host_tests C)
 
@@ -23,7 +23,8 @@ set(GEN_SERVER "")
 set(GEN_CLIENT "")
 foreach(p xdg-shell linux-dmabuf-unstable-v1 xdg-decoration-unstable-v1
           text-input-unstable-v1 text-input-unstable-v3 xwayland-shell-v1
-          pointer-constraints-unstable-v1 relative-pointer-unstable-v1)
+          pointer-constraints-unstable-v1 relative-pointer-unstable-v1 viewporter
+          server-decoration)
     add_custom_command(
         OUTPUT ${GEN}/${p}-server-protocol.h ${GEN}/${p}-client-protocol.h ${GEN}/${p}-protocol.c
         COMMAND ${WAYLAND_SCANNER} server-header ${PROTO}/${p}.xml ${GEN}/${p}-server-protocol.h
@@ -52,6 +53,7 @@ add_executable(dnc-headless
     ${CPP}/compositor/seat.c
     ${CPP}/compositor/output.c
     ${CPP}/compositor/data_device.c
+    ${CPP}/compositor/viewporter.c
     ${CPP}/compositor/decoration.c
     ${CPP}/compositor/text_input.c
     ${CPP}/compositor/xwayland.c
@@ -64,3 +66,7 @@ target_link_libraries(dnc-headless PRIVATE ${WL_LINK_LIBRARIES} pthread m)
 add_executable(dn-wltest ${REPO}/guest-tools/dn-wltest.c ${GEN_CLIENT})
 target_include_directories(dn-wltest PRIVATE ${GEN} ${WL_INCLUDE_DIRS})
 target_link_libraries(dn-wltest PRIVATE ${WL_LINK_LIBRARIES})
+
+add_executable(dnc-decotest deco-test.c ${GEN_CLIENT})
+target_include_directories(dnc-decotest PRIVATE ${GEN} ${WL_INCLUDE_DIRS})
+target_link_libraries(dnc-decotest PRIVATE ${WL_LINK_LIBRARIES})

@@ -1,12 +1,14 @@
 #!/bin/sh
 # dn-gl: run a program with a chosen OpenGL backend.
-# Usage: dn-gl <auto|zink|gl4es|llvmpipe> <command> [args...]
-#   zink      desktop GL 4.6 / GLES 3.2 on Vulkan (Turnip on Adreno)
-#   gl4es     desktop GL 2.1 translated to GLES 2 (on Zink or llvmpipe)
+# Usage: dn-gl <auto|zink|virgl|gl4es|llvmpipe> <command> [args...]
+#   zink      desktop GL 4.6 / GLES 3.2 on Vulkan (Turnip on Adreno 6xx+)
+#   virgl     desktop GL through the app's virgl server on Android's GLES
+#             driver (any GPU: Mali, PowerVR, older Adreno)
+#   gl4es     desktop GL 2.1 translated to GLES 2 (on the backend auto picks)
 #   llvmpipe  software rendering
-#   auto      zink when a KGSL GPU is present, llvmpipe otherwise
+#   auto      zink when Turnip drives the GPU, else virgl, else llvmpipe
 set -e
-[ $# -ge 2 ] || { sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
+[ $# -ge 2 ] || { sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
 backend="$1"
 shift
 
@@ -22,9 +24,62 @@ note() {
 setv() { note "$1"; export "$1=$2"; }
 unsetv() { for v; do note "$v"; unset "$v"; done; }
 
+# Turnip runs on Adreno 6xx and newer only: older Adreno have /dev/kgsl-3d0
+# too, and Zink would land on lavapipe there. vulkaninfo decides once per
+# Turnip build; the answer is cached in $XDG_RUNTIME_DIR.
+# Every program start pays for this, so the cached path runs one process.
+has_turnip() {
+    [ -e /dev/kgsl-3d0 ] || return 1
+    icd=""
+    for f in /usr/share/vulkan/icd.d/turnip_kgsl_icd.*.json; do
+        [ -e "$f" ] && icd="$f"
+    done
+    [ -n "$icd" ] || return 1
+    # v2: answers of the first version could be wrong (see below)
+    key="v2-$(stat -c %Y /usr/lib/libvulkan_turnip_kgsl.so 2>/dev/null)"
+    cache="${XDG_RUNTIME_DIR:-/tmp}/dn-gl-turnip"
+    if [ -f "$cache" ] && read -r ckey canswer < "$cache" && [ "$ckey" = "$key" ]; then
+        [ "$canswer" = yes ]
+        return
+    fi
+    answer=no
+    # Without display variables: vulkaninfo crashes probing X11 surfaces
+    # when DISPLAY names an X server that is not there (yet)
+    if env -u DISPLAY -u WAYLAND_DISPLAY TU_DEBUG="${TU_DEBUG:-noconform}" \
+        VK_ICD_FILENAMES="$icd" VK_DRIVER_FILES="$icd" \
+        timeout 20 vulkaninfo --summary 2>/dev/null | grep -q 'PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU'; then
+        answer=yes
+    fi
+    echo "$key $answer" > "$cache.$$" 2>/dev/null && mv "$cache.$$" "$cache" 2>/dev/null
+    [ "$answer" = yes ]
+}
+
+# The app's virgl server (env/Virgl.kt) listens on VTEST_SOCKET_NAME
+has_virgl() {
+    [ -S "${VTEST_SOCKET_NAME:-/run/droidnative/virgl.sock}" ]
+}
+
 if [ "$backend" = auto ]; then
-    if [ -e /dev/kgsl-3d0 ]; then backend=zink; else backend=llvmpipe; fi
+    if has_turnip; then backend=zink
+    elif has_virgl; then backend=virgl
+    else backend=llvmpipe
+    fi
 fi
+
+# Mesa's virpipe: gallium virgl over the vtest socket, presented with
+# software copies (no DRM device needed)
+use_virgl() {
+    unsetv MESA_LOADER_DRIVER_OVERRIDE
+    setv GALLIUM_DRIVER virpipe
+    setv LIBGL_ALWAYS_SOFTWARE 1
+    setv VTEST_SOCKET_NAME "${VTEST_SOCKET_NAME:-/run/droidnative/virgl.sock}"
+}
+
+use_llvmpipe() {
+    unsetv MESA_LOADER_DRIVER_OVERRIDE
+    setv GALLIUM_DRIVER llvmpipe
+    setv LIBGL_ALWAYS_SOFTWARE 1
+}
 
 use_zink() {
     # With the DroidNative mesa build, EGL then presents through Vulkan WSI
@@ -41,13 +96,17 @@ case "$backend" in
     zink)
         use_zink
         ;;
+    virgl)
+        use_virgl
+        ;;
     llvmpipe)
-        unsetv MESA_LOADER_DRIVER_OVERRIDE
-        setv GALLIUM_DRIVER llvmpipe
-        setv LIBGL_ALWAYS_SOFTWARE 1
+        use_llvmpipe
         ;;
     gl4es)
-        if [ -e /dev/kgsl-3d0 ]; then use_zink; else setv GALLIUM_DRIVER llvmpipe; setv LIBGL_ALWAYS_SOFTWARE 1; fi
+        if has_turnip; then use_zink
+        elif has_virgl; then use_virgl
+        else use_llvmpipe
+        fi
         setv LD_LIBRARY_PATH "/usr/lib/gl4es${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
         # gl4es must load Mesa's real EGL/GLES, not its own wrapper
         setv LIBGL_EGL /usr/lib/libEGL.so.1

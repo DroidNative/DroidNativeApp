@@ -66,6 +66,8 @@ import app.droidnative.env.Prefs
 import app.droidnative.env.Session
 import app.droidnative.env.StorageMounts
 import app.droidnative.env.DiskImages
+import app.droidnative.display.desktop.DesktopMode
+import app.droidnative.display.desktop.Wallpaper
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.RadioButton
 import androidx.compose.foundation.selection.selectable
@@ -97,6 +99,10 @@ fun SettingsScreen() {
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         SectionTitle(R.string.settings_display)
         DisplaySettings()
+
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        SectionTitle(R.string.settings_desktop)
+        DesktopSettings()
 
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         SectionTitle(R.string.settings_sound)
@@ -491,6 +497,43 @@ private fun SwitchRow(title: String, summary: String, checked: Boolean,
         }
         // The row handles the click
         Switch(checked, onCheckedChange = null)
+    }
+}
+
+/** Desktop emulation (display/desktop) and its wallpaper. */
+@Composable
+private fun DesktopSettings() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var enabled by remember { mutableStateOf(DesktopMode.enabled(context)) }
+    var custom by remember { mutableStateOf(Wallpaper.isCustom(context)) }
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) { Wallpaper.set(context, uri) }
+            if (ok) custom = true
+            else Toast.makeText(context, R.string.desktop_wallpaper_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
+    SwitchRow(stringResource(R.string.desktop_mode), stringResource(R.string.desktop_mode_summary), enabled) {
+        enabled = it
+        DesktopMode.set(context, it)
+    }
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text(stringResource(R.string.desktop_wallpaper), style = MaterialTheme.typography.bodyLarge)
+            Text(stringResource(if (custom) R.string.desktop_wallpaper_custom else R.string.desktop_wallpaper_default),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (custom) TextButton({
+            Wallpaper.reset(context)
+            custom = false
+        }) { Text(stringResource(R.string.desktop_wallpaper_reset)) }
+        OutlinedButton({ pick.launch(arrayOf("image/*")) }) { Text(stringResource(R.string.desktop_wallpaper_choose)) }
+    }
+    if (enabled) TextButton({ DesktopMode.open(context) }, Modifier.padding(horizontal = 8.dp)) {
+        Text(stringResource(R.string.desktop_open))
     }
 }
 

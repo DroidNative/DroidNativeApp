@@ -44,6 +44,18 @@ host_arch() {
     esac
 }
 
+# Emulator that runs programs of arch $1 here through the binfmt rules
+# proot reads (/etc/binfmt.d): box64 (BOX32 for i686) on aarch64, box86 on
+# 32-bit ARM. Prints nothing when there is none.
+emulator_for() {
+    case "$(host_arch)-$1" in
+        aarch64-x86_64|aarch64-i686) emu=box64 ;;
+        arm-i686) emu=box86 ;;
+        *) return 0 ;;
+    esac
+    command -v "$emu" >/dev/null && echo "$emu"
+}
+
 # Little-endian unsigned integer of $3 bytes at offset $2 of file $1
 read_uint() {
     od -An -tu1 -j"$2" -N"$3" "$1" | awk '{ for (i = NF; i >= 1; i--) v = v * 256 + $i } END { print v }'
@@ -141,8 +153,14 @@ cmd_install() {
     src="$1"
     [ -f "$src" ] || die "no such file: $src"
     arch="$(elf_arch "$src")"
-    [ "$arch" = "$(host_arch)" ] ||
-        die "$src is built for $arch, this environment is $(host_arch)"
+    if [ "$arch" != "$(host_arch)" ] && [ -z "$(emulator_for "$arch")" ]; then
+        case "$(host_arch)-$arch" in
+            aarch64-x86_64|aarch64-i686) hint=" (install box64 to run it emulated)" ;;
+            arm-i686) hint=" (install box86 to run it emulated)" ;;
+            *) hint="" ;;
+        esac
+        die "$src is built for $arch, this environment is $(host_arch)$hint"
+    fi
 
     id="$(make_id "$src")"
     [ -n "$id" ] || die "cannot derive an id from $src"

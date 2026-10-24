@@ -1,6 +1,9 @@
 package app.droidnative.test
 
 import android.content.Context
+import android.opengl.EGL14
+import android.opengl.EGLConfig
+import android.opengl.GLES20
 import android.util.Log
 import androidx.test.platform.app.InstrumentationRegistry
 import app.droidnative.env.EnvPaths
@@ -27,6 +30,43 @@ object TestEnv {
     val reportDir get() = File(paths.filesDir, "test-reports").apply { mkdirs() }
 
     val hasKgsl get() = File("/dev/kgsl-3d0").exists()
+
+    /** GL_RENDERER of Android's own driver, e.g. "Adreno (TM) 610". */
+    val androidRenderer: String by lazy { glRenderer() }
+
+    /**
+     * Turnip drives Adreno 6xx and newer; older Adreno have KGSL too
+     * (Galaxy S5: Adreno 330) but no Vulkan from Mesa.
+     */
+    val hasTurnipGpu: Boolean by lazy {
+        val model = Regex("Adreno \\(TM\\) (\\d+)").find(androidRenderer)?.groupValues?.get(1)?.toIntOrNull()
+        hasKgsl && arch.hasTurnipPackage && model != null && model >= 600
+    }
+
+    private fun glRenderer(): String {
+        val display = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY)
+        val version = IntArray(2)
+        if (!EGL14.eglInitialize(display, version, 0, version, 1)) return ""
+        try {
+            val configs = arrayOfNulls<EGLConfig>(1)
+            val count = IntArray(1)
+            val attrs = intArrayOf(EGL14.EGL_RENDERABLE_TYPE, EGL14.EGL_OPENGL_ES2_BIT,
+                EGL14.EGL_SURFACE_TYPE, EGL14.EGL_PBUFFER_BIT, EGL14.EGL_NONE)
+            if (!EGL14.eglChooseConfig(display, attrs, 0, configs, 0, 1, count, 0) || count[0] == 0) return ""
+            val ctx = EGL14.eglCreateContext(display, configs[0], EGL14.EGL_NO_CONTEXT,
+                intArrayOf(EGL14.EGL_CONTEXT_CLIENT_VERSION, 2, EGL14.EGL_NONE), 0)
+            val surface = EGL14.eglCreatePbufferSurface(display, configs[0],
+                intArrayOf(EGL14.EGL_WIDTH, 1, EGL14.EGL_HEIGHT, 1, EGL14.EGL_NONE), 0)
+            EGL14.eglMakeCurrent(display, surface, surface, ctx)
+            val renderer = GLES20.glGetString(GLES20.GL_RENDERER) ?: ""
+            EGL14.eglMakeCurrent(display, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_SURFACE, EGL14.EGL_NO_CONTEXT)
+            EGL14.eglDestroySurface(display, surface)
+            EGL14.eglDestroyContext(display, ctx)
+            return renderer
+        } finally {
+            EGL14.eglTerminate(display)
+        }
+    }
 
     /** Appends one line to the report and logcat. */
     fun report(test: String, message: String) {

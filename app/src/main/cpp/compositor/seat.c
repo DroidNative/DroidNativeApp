@@ -26,7 +26,7 @@ static bool hit_tree(struct dnc_surface *s, double x, double y, struct hit *out)
             return true;
     }
     if (s->mapped && x >= 0 && y >= 0 && x < dnc_surface_width(s) &&
-        y < dnc_surface_height(s)) {
+        y < dnc_surface_height(s) && dnc_region_contains(&s->input, x, y)) {
         out->surface = s;
         out->sx = x;
         out->sy = y;

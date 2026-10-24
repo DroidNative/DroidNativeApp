@@ -1,8 +1,9 @@
 /*
  * dn-notifyd: relays the guest's desktop notifications
- * (org.freedesktop.Notifications) and media players (MPRIS) to the
- * DroidNative app, and the app's answers (actions, dismissals, media
- * buttons) back. One JSON object per line over the Unix socket
+ * (org.freedesktop.Notifications), media players (MPRIS) and text fields
+ * of X11 programs (as a Fcitx 5 input method) to the DroidNative app, and
+ * the app's answers (actions, dismissals, media buttons, keyboard text)
+ * back. One JSON object per line over the Unix socket
  * $XDG_RUNTIME_DIR/bridge.sock, served by the app (Bridge.kt).
  * Protocol: docs/bridge-protocol.md. Started by session.sh.
  */
@@ -30,6 +31,7 @@ static guint32 next_id = 1;
 
 static void bridge_connect_later(void);
 static void player_send(const char *name);
+static void ics_drop_owner(const char *owner);
 
 /* Bridge to the app */
 
@@ -451,6 +453,7 @@ static void name_owner_changed(GDBusConnection *c, const char *sender, const cha
     (void)c; (void)sender; (void)path; (void)iface; (void)signal; (void)data;
     const char *name, *old, *new;
     g_variant_get(params, "(&s&s&s)", &name, &old, &new);
+    if (name[0] == ':' && *old && !*new) ics_drop_owner(name);
     if (!g_str_has_prefix(name, MPRIS_PREFIX)) return;
     if (*old) player_remove(name);
     if (*new) player_add(name, new);
@@ -493,6 +496,188 @@ static void player_call(const char *name, const char *method, GVariant *params)
     else if (params) g_variant_unref(g_variant_ref_sink(params));
 }
 
+/* Input method (Fcitx 5 D-Bus frontend) */
+
+/*
+ * X11 programs have no text-input protocol, so the compositor cannot tell
+ * when one of their text fields is active. Toolkits that speak Fcitx 5's
+ * D-Bus protocol (GTK through fcitx5-gtk, which dn-xwm selects for X11 via
+ * XSETTINGS; SDL with SDL_IM_MODULE=fcitx) report it here: FocusIn and
+ * FocusOut become "im-focus", and the app's keyboard text comes back as
+ * CommitString. Keys are never consumed (ProcessKeyEvent answers false).
+ */
+
+#define IM_PATH "/org/freedesktop/portal/inputmethod"
+#define IC_PREFIX "/org/freedesktop/portal/inputcontext/"
+#define IC_IFACE "org.fcitx.Fcitx.InputContext1"
+
+static const char im_xml[] =
+    "<node><interface name='org.fcitx.Fcitx.InputMethod1'>"
+    " <method name='CreateInputContext'><arg type='a(ss)' direction='in'/>"
+    "  <arg type='o' direction='out'/><arg type='ay' direction='out'/></method>"
+    "</interface></node>";
+
+static const char ic_xml[] =
+    "<node><interface name='" IC_IFACE "'>"
+    " <method name='FocusIn'/><method name='FocusOut'/><method name='Reset'/>"
+    " <method name='DestroyIC'/>"
+    " <method name='SetCursorRect'><arg type='i' direction='in'/><arg type='i' direction='in'/>"
+    "  <arg type='i' direction='in'/><arg type='i' direction='in'/></method>"
+    " <method name='SetCursorRectV2'><arg type='i' direction='in'/><arg type='i' direction='in'/>"
+    "  <arg type='i' direction='in'/><arg type='i' direction='in'/><arg type='d' direction='in'/></method>"
+    " <method name='SetCapability'><arg type='t' direction='in'/></method>"
+    " <method name='SetSurroundingText'><arg type='s' direction='in'/><arg type='u' direction='in'/>"
+    "  <arg type='u' direction='in'/></method>"
+    " <method name='SetSurroundingTextPosition'><arg type='u' direction='in'/>"
+    "  <arg type='u' direction='in'/></method>"
+    " <method name='ProcessKeyEvent'><arg type='u' direction='in'/><arg type='u' direction='in'/>"
+    "  <arg type='u' direction='in'/><arg type='b' direction='in'/><arg type='u' direction='in'/>"
+    "  <arg type='b' direction='out'/></method>"
+    " <method name='PrevPage'/><method name='NextPage'/>"
+    " <method name='SelectCandidate'><arg type='i' direction='in'/></method>"
+    " <signal name='CommitString'><arg type='s'/></signal>"
+    " <signal name='UpdateFormattedPreedit'><arg type='a(si)'/><arg type='i'/></signal>"
+    "</interface></node>";
+
+struct ic {
+    char *path;
+    char *owner;           // unique bus name of the client
+    guint reg;             // object registration
+    guint32 pid;
+};
+
+static GDBusInterfaceInfo *ic_info;
+static GHashTable *ics;    // path -> struct ic
+static struct ic *focused; // context with the active text field
+static guint32 next_ic = 1;
+
+static void ic_free(gpointer data)
+{
+    struct ic *c = data;
+    g_dbus_connection_unregister_object(bus, c->reg);
+    g_free(c->path);
+    g_free(c->owner);
+    g_free(c);
+}
+
+static void send_im_focus(struct ic *c, gboolean active)
+{
+    JsonBuilder *b = message("im-focus");
+    member_bool(b, "active", active);
+    member_int(b, "pid", c->pid);
+    send_end(b);
+}
+
+static void ic_unfocus(struct ic *c)
+{
+    if (focused != c) return;
+    focused = NULL;
+    send_im_focus(c, FALSE);
+}
+
+static void ic_signal(struct ic *c, const char *name, GVariant *params)
+{
+    g_dbus_connection_emit_signal(bus, c->owner, c->path, IC_IFACE, name, params, NULL);
+}
+
+static void ic_call(GDBusConnection *conn, const char *sender, const char *path, const char *iface,
+                    const char *method, GVariant *params, GDBusMethodInvocation *inv, gpointer data)
+{
+    (void)conn; (void)sender; (void)iface; (void)params; (void)data;
+    struct ic *c = g_hash_table_lookup(ics, path);
+    if (!c) {
+        g_dbus_method_invocation_return_dbus_error(inv, "org.freedesktop.DBus.Error.UnknownObject", path);
+        return;
+    }
+    if (!strcmp(method, "ProcessKeyEvent")) {
+        g_dbus_method_invocation_return_value(inv, g_variant_new("(b)", FALSE));
+        return;
+    }
+    g_dbus_method_invocation_return_value(inv, NULL);
+    if (!strcmp(method, "FocusIn")) {
+        if (focused == c) return;
+        focused = c;
+        send_im_focus(c, TRUE);
+    } else if (!strcmp(method, "FocusOut")) {
+        ic_unfocus(c);
+    } else if (!strcmp(method, "DestroyIC")) {
+        ic_unfocus(c);
+        g_hash_table_remove(ics, path);
+    }
+}
+
+static const GDBusInterfaceVTable ic_vtable = { ic_call, NULL, NULL, { 0 } };
+
+static void im_call(GDBusConnection *conn, const char *sender, const char *path, const char *iface,
+                    const char *method, GVariant *params, GDBusMethodInvocation *inv, gpointer data)
+{
+    (void)conn; (void)path; (void)iface; (void)params; (void)data;
+    if (strcmp(method, "CreateInputContext")) return;
+    struct ic *c = g_new0(struct ic, 1);
+    c->path = g_strdup_printf(IC_PREFIX "%u", next_ic++);
+    c->owner = g_strdup(sender);
+    c->pid = sender_pid(sender);
+    GError *err = NULL;
+    c->reg = g_dbus_connection_register_object(bus, c->path, ic_info, &ic_vtable, NULL, NULL, &err);
+    if (!c->reg) {
+        g_dbus_method_invocation_return_gerror(inv, err);
+        g_error_free(err);
+        g_free(c->path);
+        g_free(c->owner);
+        g_free(c);
+        return;
+    }
+    g_hash_table_insert(ics, c->path, c);
+    guint8 uuid[16];
+    for (int i = 0; i < 16; i++) uuid[i] = (guint8)g_random_int_range(0, 256);
+    g_dbus_method_invocation_return_value(inv, g_variant_new("(o@ay)", c->path,
+        g_variant_new_fixed_array(G_VARIANT_TYPE_BYTE, uuid, 16, 1)));
+}
+
+static const GDBusInterfaceVTable im_vtable = { im_call, NULL, NULL, { 0 } };
+
+// A client left the bus: its contexts go with it
+static void ics_drop_owner(const char *owner)
+{
+    GHashTableIter it;
+    gpointer value;
+    if (!ics) return;
+    g_hash_table_iter_init(&it, ics);
+    while (g_hash_table_iter_next(&it, NULL, &value)) {
+        struct ic *c = value;
+        if (strcmp(c->owner, owner)) continue;
+        ic_unfocus(c);
+        g_hash_table_iter_remove(&it);
+    }
+}
+
+static void im_text(const char *text, gboolean preedit)
+{
+    if (!focused) return;
+    // Preedit: one underlined segment (fcitx TextFormatFlag Underline),
+    // cursor at its end; a commit clears it first
+    GVariantBuilder segs;
+    g_variant_builder_init(&segs, G_VARIANT_TYPE("a(si)"));
+    if (preedit && *text) g_variant_builder_add(&segs, "(si)", text, 1 << 3);
+    ic_signal(focused, "UpdateFormattedPreedit",
+        g_variant_new("(a(si)i)", &segs, preedit ? (gint32)strlen(text) : 0));
+    if (!preedit) ic_signal(focused, "CommitString", g_variant_new("(s)", text));
+}
+
+static void im_setup(void)
+{
+    ics = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, ic_free);
+    GDBusNodeInfo *ic_node = g_dbus_node_info_new_for_xml(ic_xml, NULL);
+    ic_info = g_dbus_interface_info_ref(ic_node->interfaces[0]);
+    g_dbus_node_info_unref(ic_node);
+    GDBusNodeInfo *im_node = g_dbus_node_info_new_for_xml(im_xml, NULL);
+    g_dbus_connection_register_object(bus, IM_PATH, im_node->interfaces[0], &im_vtable, NULL, NULL, NULL);
+    g_dbus_node_info_unref(im_node);
+    // Not REPLACE: a real fcitx5 the user started keeps its name
+    g_bus_own_name_on_connection(bus, "org.fcitx.Fcitx5", G_BUS_NAME_OWNER_FLAGS_NONE,
+        NULL, NULL, NULL, NULL);
+}
+
 /* Messages from the app */
 
 static void handle(const char *line)
@@ -528,6 +713,8 @@ static void handle(const char *line)
         if (g_variant_is_object_path(track))
             player_call(name, "SetPosition", g_variant_new("(ox)", track, pos));
         player_send(name);
+    } else if (!strcmp(type, "im-commit") || !strcmp(type, "im-preedit")) {
+        im_text(json_object_get_string_member_with_default(o, "text", ""), type[3] == 'p');
     }
     g_object_unref(parser);
 }
@@ -628,6 +815,7 @@ int main(void)
         "NameOwnerChanged", "/org/freedesktop/DBus", NULL, G_DBUS_SIGNAL_FLAGS_NONE,
         name_owner_changed, NULL, NULL);
     players_scan();
+    im_setup();
     if (bridge_connect(NULL) == G_SOURCE_CONTINUE) g_timeout_add_seconds(1, bridge_connect, NULL);
 
     g_main_loop_run(g_main_loop_new(NULL, FALSE));

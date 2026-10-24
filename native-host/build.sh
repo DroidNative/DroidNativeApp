@@ -21,7 +21,7 @@ API=24
 # Pinned sources
 # DroidNative fork of termux/proot (storage, V4L2, Flatpak support)
 PROOT_REPO="https://github.com/DroidNative/proot.git"
-PROOT_COMMIT="eb906a77c6632c1e69c367c9de289243cb909cab"
+PROOT_COMMIT="4ac94ecbb567608725e1d68d5ea617800a76c9c4"
 TALLOC_VERSION="2.5.0"
 TALLOC_SHA256="912afa237510ae542a7733998eb18a12bcda35ab6729c8e2ddb43e8d0ebab007"
 WAYLAND_VERSION="1.26.0"
@@ -30,6 +30,13 @@ LIBFFI_VERSION="3.8.0"
 LIBFFI_SHA256="7da3e2d9a171eb0a038f592ecad3ff2bb2550f3496d87b3b29ad0cf4430c0db4"
 # Disk images of the fork's storage extension (amalgamation, SHA3 checked
 # against sqlite.org when pinned)
+# virgl: OpenGL of the guest (Mesa virpipe) rendered with Android's GLES on
+# GPUs without Turnip. Patches in patches/virglrenderer, taken from Termux's
+# virglrenderer-android (termux-packages, packages/virglrenderer-android).
+VIRGL_VERSION="1.3.0"
+VIRGL_SHA256="56170f8caa1bb642a2624b649e3bcca095ec2834814e5c308efc8a85a709e4ce"
+EPOXY_VERSION="1.5.10"
+EPOXY_SHA256="a7ced37f4102b745ac86d6a70a9da399cc139ff168ba6b8002b4d8d43c900c15"
 SQLITE_VERSION="3540100"
 SQLITE_SHA256="926ef8d3eab93fbf6e06011901273eec076b25594a4e1cdadd50c987f4f6d64e"
 
@@ -178,6 +185,85 @@ CFG
 }
 
 # $1 = abi -> sets TRIPLE (clang target prefix)
+fetch_virgl_sources() {
+    fetch_tarball "https://gitlab.freedesktop.org/virgl/virglrenderer/-/archive/virglrenderer-$VIRGL_VERSION/virglrenderer-virglrenderer-$VIRGL_VERSION.tar.gz" \
+        "$VIRGL_SHA256" "virglrenderer-virglrenderer-$VIRGL_VERSION"
+    fetch_tarball "https://github.com/anholt/libepoxy/archive/refs/tags/$EPOXY_VERSION.tar.gz" \
+        "$EPOXY_SHA256" "libepoxy-$EPOXY_VERSION"
+    local src="$CACHE/virglrenderer-virglrenderer-$VIRGL_VERSION" p
+    if [ ! -e "$src/.dn-patched" ]; then
+        for p in "$ROOT"/native-host/patches/virglrenderer/*.patch; do
+            patch -s -d "$src" -p1 < "$p"
+        done
+        touch "$src/.dn-patched"
+    fi
+}
+
+# Meson cross file for the NDK toolchain of $TRIPLE
+write_cross_file() {
+    local abi="$1" file="$2" prefix="$3" cpu family
+    case "$abi" in
+        arm64-v8a)   family=aarch64; cpu=aarch64 ;;
+        armeabi-v7a) family=arm; cpu=armv7 ;;
+        x86_64)      family=x86_64; cpu=x86_64 ;;
+        x86)         family=x86; cpu=i686 ;;
+    esac
+    cat > "$prefix/pkg-config" <<PKG
+#!/bin/sh
+PKG_CONFIG_DIR= PKG_CONFIG_LIBDIR="$prefix/lib/pkgconfig" exec pkg-config --static "\$@"
+PKG
+    chmod +x "$prefix/pkg-config"
+    cat > "$file" <<CROSS
+[binaries]
+c = '$TC/$TRIPLE-clang'
+cpp = '$TC/$TRIPLE-clang++'
+ar = '$TC/llvm-ar'
+strip = '$TC/llvm-strip'
+pkgconfig = '$prefix/pkg-config'
+
+[built-in options]
+c_args = ['-O2', '-fPIC']
+c_link_args = ['-Wl,-z,max-page-size=16384']
+default_library = 'static'
+
+[host_machine]
+system = 'android'
+cpu_family = '$family'
+cpu = '$cpu'
+endian = 'little'
+CROSS
+}
+
+# meson setup that also works on an existing build dir (old meson knows
+# --reconfigure only there)
+meson_setup() {
+    local dir="$1"; shift
+    if [ -d "$dir/meson-private" ]; then
+        meson setup --reconfigure "$dir" "$@"
+    else
+        meson setup "$dir" "$@"
+    fi
+}
+
+# virgl_test_server, linked statically against virglrenderer and libepoxy;
+# libepoxy dlopens Android's libEGL/libGLESv2 at run time
+build_virgl() {
+    local abi="$1" bdir="$2"
+    local prefix="$bdir/prefix" cross="$bdir/meson-cross.txt"
+    mkdir -p "$prefix"
+    write_cross_file "$abi" "$cross" "$prefix"
+    if [ ! -f "$prefix/lib/libepoxy.a" ]; then
+        meson_setup "$bdir/epoxy-build" "$CACHE/libepoxy-$EPOXY_VERSION" \
+            --cross-file "$cross" --prefix "$prefix" --libdir lib \
+            -Degl=yes -Dglx=no -Dx11=false -Dtests=false >/dev/null
+        ninja -C "$bdir/epoxy-build" install >/dev/null
+    fi
+    meson_setup "$bdir/virgl-build" "$CACHE/virglrenderer-virglrenderer-$VIRGL_VERSION" \
+        --cross-file "$cross" --prefix "$prefix" --libdir lib \
+        -Dplatforms=egl -Dvenus=false -Dtests=false -Dvideo=false >/dev/null
+    ninja -C "$bdir/virgl-build" vtest/virgl_test_server >/dev/null
+}
+
 triple_for() {
     case "$1" in
         arm64-v8a)   TRIPLE="aarch64-linux-android$API" ;;
@@ -248,6 +334,7 @@ install_abi() {
     if [ -f "$PROOT_BUILD/src/loader/loader-m32" ]; then
         cp "$PROOT_BUILD/src/loader/loader-m32" "$dst/libproot-loader32.so"
     fi
+    "$TC/llvm-strip" -o "$dst/libvirgl-server.so" "$bdir/virgl-build/vtest/virgl_test_server"
     chmod 755 "$dst"/lib*.so
 }
 
@@ -257,6 +344,7 @@ main() {
     fetch_sources
     fetch_sqlite_sources
     fetch_wayland_sources
+    fetch_virgl_sources
     build_host_scanner
     for abi in "${abis[@]}"; do
         triple_for "$abi"
@@ -265,6 +353,7 @@ main() {
         echo "== $abi"
         build_talloc "$abi" "$bdir"
         build_proot "$abi" "$bdir"
+        build_virgl "$abi" "$bdir"
         install_abi "$abi" "$bdir"
         build_libffi "$abi" "$bdir"
         build_wayland_server "$abi" "$bdir"

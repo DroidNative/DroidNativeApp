@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Host tests for the compositor core (null renderer, ASan/UBSan build).
-# Runs dn-wltest in shm and dmabuf mode, plus weston-simple-shm if present.
+# Runs dn-wltest in shm and dmabuf mode, plus weston-simple-shm if present,
+# and dnc-decotest against a normal and a desktop mode compositor.
 # Usage: tests/host/compositor/run.sh
 set -euo pipefail
 
@@ -13,6 +14,8 @@ ninja -C "$BUILD" >/dev/null
 RUNDIR="$(mktemp -d /tmp/dnc-test.XXXXXX)"
 LOG="$RUNDIR/compositor.log"
 ERR="$RUNDIR/compositor.err"
+DLOG="$RUNDIR/desktop.log"
+DERR="$RUNDIR/desktop.err"
 SOCK="$RUNDIR/wayland-dn"
 FAIL=0
 EXPECT_CLOSED=2
@@ -20,7 +23,7 @@ EXPECT_CLOSED=2
 cleanup() {
     [ -n "${PID:-}" ] && kill "$PID" 2>/dev/null && wait "$PID" 2>/dev/null
     # Explicit names only, never a glob on a variable
-    rm -f "${LOG:?}" "${ERR:?}" "${SOCK:?}"
+    rm -f "${LOG:?}" "${ERR:?}" "${DLOG:?}" "${DERR:?}" "${SOCK:?}"
     rmdir "${RUNDIR:?}"
 }
 trap cleanup EXIT
@@ -42,6 +45,18 @@ check() {   # name, command...
     fi
 }
 
+check_out() {   # name, expected substring, command...
+    local name="$1" want="$2"; shift 2
+    local out
+    out="$("$@" 2>&1 | head -c 4096)" || true
+    if printf '%s' "$out" | grep -qF -- "$want"; then
+        echo "PASS $name  $out"
+    else
+        echo "FAIL $name  wanted '$want', got: $out"
+        FAIL=1
+    fi
+}
+
 check "shm 120 frames"    "$BUILD/dn-wltest" --mode shm --frames 120 --timeout-ms 10000
 check "dmabuf 120 frames" "$BUILD/dn-wltest" --mode dmabuf --frames 120 --timeout-ms 10000
 if command -v weston-simple-shm >/dev/null; then
@@ -51,9 +66,33 @@ if command -v weston-simple-shm >/dev/null; then
     EXPECT_CLOSED=3
 fi
 
+# GTK 3 draws its own title bar unless the default mode is server (2)
+check_out "kde decoration, fullscreen mode" "default_mode 1 mode 2" "$BUILD/dnc-decotest"
+EXPECT_CLOSED=$((EXPECT_CLOSED + 1))
+
 sleep 0.3
 kill "$PID"; wait "$PID" 2>/dev/null || true
 PID=
+
+# Desktop mode: server decorations, the window opens at the first frame's size
+rm -f "${SOCK:?}"
+DNC_HEADLESS_DESKTOP=1 "$BUILD/dnc-headless" "$SOCK" > "$DLOG" 2> "$DERR" &
+PID=$!
+for _ in $(seq 50); do [ -S "$SOCK" ] && break; sleep 0.1; done
+check_out "kde decoration, desktop mode" "default_mode 2 mode 2 configured 300x200" "$BUILD/dnc-decotest"
+sleep 0.3
+kill "$PID"; wait "$PID" 2>/dev/null || true
+PID=
+if grep -q '"event":"size","id":1,"width":300,"height":200' "$DLOG"; then
+    echo "PASS first frame size reported"
+else
+    echo "FAIL first frame size not reported"; cat "$DLOG"
+    FAIL=1
+fi
+if grep -E "ERROR: (Address|Undefined|Leak)Sanitizer|runtime error" "$DERR"; then
+    echo "FAIL sanitizer reported problems (desktop mode)"
+    FAIL=1
+fi
 
 # Every closed toplevel must have presented frames with non-black content
 closed=$(grep -c '"event":"closed"' "$LOG" || true)

@@ -8,6 +8,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import app.droidnative.env.EnvPaths
+import app.droidnative.env.EnvService
 import java.io.File
 import java.io.IOException
 import java.io.OutputStream
@@ -17,8 +18,8 @@ import org.json.JSONObject
 
 /**
  * App side of the guest bridge: serves `/run/droidnative/bridge.sock` for
- * dn-notifyd (droidnative-tools), which relays desktop notifications and
- * MPRIS media players. One JSON object per line in both directions, see
+ * dn-notifyd (droidnative-tools), which relays desktop notifications,
+ * MPRIS media players and text fields of X11 programs. One JSON object per line in both directions, see
  * docs/bridge-protocol.md. Started and stopped by EnvService.
  */
 object Bridge {
@@ -129,6 +130,7 @@ object Bridge {
             "close" -> notifications?.cancel(m.optInt("id"))
             "player" -> players?.update(m)
             "player-gone" -> players?.remove(m.optString("name"))
+            "im-focus" -> EnvService.compositor.inputMethodFocus(m.optBoolean("active"))
             else -> Log.w(TAG, "unknown message ${m.optString("type")}")
         }
     }

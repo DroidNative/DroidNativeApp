@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- KDE's server decoration protocol (org_kde_kwin_server_decoration),
+     reduced to its interface definitions. GTK 3 speaks only this one, not
+     xdg-decoration, to decide whether it draws its own title bar. -->
+<protocol name="server_decoration">
+  <interface name="org_kde_kwin_server_decoration_manager" version="1">
+    <request name="create">
+      <arg name="id" type="new_id" interface="org_kde_kwin_server_decoration"/>
+      <arg name="surface" type="object" interface="wl_surface"/>
+    </request>
+    <enum name="mode">
+      <entry name="None" value="0"/>
+      <entry name="Client" value="1"/>
+      <entry name="Server" value="2"/>
+    </enum>
+    <event name="default_mode">
+      <arg name="mode" type="uint"/>
+    </event>
+  </interface>
+
+  <interface name="org_kde_kwin_server_decoration" version="1">
+    <request name="release" type="destructor"/>
+    <enum name="mode">
+      <entry name="None" value="0"/>
+      <entry name="Client" value="1"/>
+      <entry name="Server" value="2"/>
+    </enum>
+    <request name="request_mode">
+      <arg name="mode" type="uint"/>
+    </request>
+    <event name="mode">
+      <arg name="mode" type="uint"/>
+    </event>
+  </interface>
+</protocol>

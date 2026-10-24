@@ -17,13 +17,20 @@ access to your files, camera, microphone and sensors.
   program you already have.
 - **Highly compatible:** native packages (xbps, over 14000 of them), Flatpak
   and AppImage. Hardware Vulkan and OpenGL on Qualcomm Adreno GPUs through
-  Mesa (Turnip, Zink), software rendering elsewhere.
+  Mesa (Turnip, Zink), hardware OpenGL on every other GPU through virgl.
+  x86 programs (AppImages, Steam) run emulated with box64/box86.
 - **No root, stock Android:** no unlocked bootloader, no root, no custom
   ROM. Android 7.0 (API 24) and newer, from 32-bit ARM to 64-bit ARM and
   x86.
+- **Works well on Phones, Tablets and Chromebooks:** The app supports both
+  running in full screen and in freeform mode, allowing devices with any
+  style of screen to get the best use out of existing applications.
+- **Optional Emulated Desktop:** Since some devices such as the Redmagic
+  lineup do not support freeform windows, a virtual desktop mode is
+  included as a feature in this app.
 
-DroidNative is in active development. It is tested on a Redmi Note 8T
-(Android 13, Adreno 610).
+DroidNative is in active development. It is officially tested working on a Redmi Note 8T
+(Android 13, Adreno 610), Fairphone 4 (Android 15, Snapdragon 750G) and Samsung Galaxy Z Fold2 (Android 13, Snapdragon 865, tested in DEX mode).
 
 ## Screenshots
 
@@ -36,7 +43,7 @@ DroidNative is in active development. It is tested on a Redmi Note 8T
   <tr>
     <td><img src="docs/screenshots/packages.png" width="260" alt="Native package manager"></td>
     <td><img src="docs/screenshots/terminal.png" width="260" alt="Xfce Terminal with the on-screen keyboard, Vulkan and OpenGL on the Adreno GPU"></td>
-    <td></td>
+    <td><img src="docs/screenshots/desktopmode.png" width="260" alt="A Linux desktop with multiple open windows"></td>
   </tr>
   <tr>
     <td colspan="3"><img src="docs/screenshots/rhythmbox.png" width="790" alt="Rhythmbox in landscape"></td>
@@ -226,7 +233,7 @@ The core components DroidNative builds on, with their sources:
 |---|---|---|---|
 | Void Linux | the Linux system (rootfs and packages) | https://voidlinux.org | various |
 | xbps, xbps-src | package manager, package builds | https://github.com/void-linux/xbps, https://github.com/void-linux/void-packages | BSD-2-Clause |
-| PRoot (DroidNative fork of the Termux fork) | runs Linux without root; Flatpak, V4L2, FUSE, disk images and more | https://github.com/DroidNative/proot | GPL-2.0 |
+| PRoot (DroidNative fork) | runs Linux without root access, with patches for Flatpak, V4L2, FUSE, disk images, etc | https://github.com/DroidNative/proot | GPL-2.0 |
 | SQLite | disk image database inside PRoot | https://sqlite.org | public domain |
 | talloc | PRoot dependency | https://talloc.samba.org | LGPL-3.0 |
 | libffi | libwayland dependency | https://github.com/libffi/libffi | MIT |

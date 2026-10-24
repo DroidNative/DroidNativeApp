@@ -674,6 +674,16 @@ void dnc_xdg_surface_commit(struct dnc_xdg_surface *xdg)
                                             tl->title ? tl->title : "", pid);
             }
         }
+        // First buffer: Wayland clients draw it after the initial 0x0
+        // configure at their own size, X windows come with theirs
+        if (!tl->size_reported && xdg->surface && xdg->surface->buffer_width > 0) {
+            tl->size_reported = true;
+            int32_t w = xdg->has_geometry ? xdg->geo_w : dnc_surface_width(xdg->surface);
+            int32_t h = xdg->has_geometry ? xdg->geo_h : dnc_surface_height(xdg->surface);
+            if (!tl->window && w > 0 && h > 0 && srv->callbacks.toplevel_size)
+                srv->callbacks.toplevel_size(srv->callback_data, tl->id,
+                                             w * srv->config.scale, h * srv->config.scale);
+        }
         return;
     }
     if (xdg->popup && xdg->last_serial == 0)

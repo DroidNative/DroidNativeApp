@@ -88,10 +88,76 @@ limit off (developer option on Android 14+, or
 
 The app contains its own Wayland compositor (`app/src/main/cpp/compositor`,
 C99): wl_compositor, wl_shm, xdg-shell, linux-dmabuf v3, xdg-decoration
-(always server side), text-input v3, xwayland-shell and the private
-`dn_xwm_v1`. Every toplevel gets its own Android task (`WindowActivity`)
-and is resized to fill it; the Android window is the decoration. Buffers
-are copied into GLES textures and drawn on the Android surface.
+(always server side), KDE server-decoration, text-input v3, wp_viewporter,
+xwayland-shell and the private `dn_xwm_v1`. Every toplevel gets its own
+Android task (`WindowActivity`) and is resized to fill it; the Android
+window is the decoration. Buffers are copied into GLES textures and drawn
+on the Android surface.
+
+Freeform and desktop (DeX) windows (`display/WindowLauncher.kt`): Android
+opens a new task fullscreen unless it gets launch bounds. While the last
+used DroidNative window is freeform (`WindowLauncher.noteWindow`, called
+by WindowActivity on focus and resize and by LaunchActivity), a new
+toplevel waits up to 400 ms for its first frame, which the program draws
+at its own size after the initial 0x0 configure. The compositor reports
+that size once, if the toplevel has no window yet (`toplevel_size`
+callback in `dnc_xdg_surface_commit`, `compositor/xdg.c`; buffer pixels).
+The window then opens with that size divided by the render factor
+(per-app resolution), plus the caption bar measured in an earlier freeform
+window, centred on the last used window, and started from that window:
+Android passes the source activity's freeform mode on, while bounds alone
+are ignored where freeform is only a developer option. EnvService,
+LaunchActivity and NotificationOpenActivity all open windows through
+`WindowLauncher.open`.
+
+Desktop emulation (Settings, "Desktop emulation mode", `Prefs.desktopEmulation`;
+`display/desktop/`), for devices without freeform windows: every toplevel
+opens in one Android task, `DesktopActivity`, instead of its own. Each
+window is a `DesktopWindowView`: a title bar drawn by the app (icon,
+title, minimise, maximise, close; drag moves, double tap maximises), the
+content as a TextureView (SurfaceViews cannot overlap in a defined order)
+and a resize grip that shows an outline and applies the size when let go.
+Three fingers moving anywhere on a window move it (`onInterceptTouchEvent`:
+only after they passed the touch slop, so a three-finger tap still reaches
+the program). When the desktop's width changes (rotation), windows shrink
+to it if needed and move fully into view; a height change alone (keyboard,
+task bar) only keeps title bars reachable (`DesktopActivity.fitWindows`).
+The application menu is placed inside the desktop area by hand
+(`showAtLocation`): Android moves a drop-down that does not fit within
+the whole edge-to-edge window, over the status bar and task bar.
+New windows take their first frame's size (`WindowLauncher.open` waits for
+it, as for freeform) and cascade. The task bar holds the application menu
+(apps from `LinuxApps.list`, started through LaunchActivity; wallpaper,
+settings, leave), a button per window (tap focuses, tap on the focused
+one minimises), the keyboard button, a clock and a button that collapses
+it to a round handle. Input is shared with WindowActivity through
+`display/ToplevelInput.kt` (mouse modes, mouse, captured pointer, keys,
+on-screen keyboard text); hardware keys go to the focused window.
+`DesktopState` keeps positions, stacking, minimised and maximised windows
+and the task bar state for the life of the process. Closing the desktop
+(Back, or removing it from recents) only detaches the surfaces: the
+programs run on, and the environment notification ("Desktop environment
+is running", "Tap to reenter", `EnvService.buildNotification`) reopens
+it. Switching the mode on hands open windows over from their
+WindowActivity (`Compositor.Listener.onDesktopEmulation`), switching it
+off reopens them in their own tasks (`DesktopMode.set`); `Compositor.attach`
+and `detach` take the host as owner, so a host going away cannot detach a
+window the next host already attached. The desktop always uses server
+decorations. Wallpaper (`desktop/Wallpaper.kt`): the bundled
+`res/drawable-nodpi/desktop_wallpaper.png` (cropped around a focus point
+in portrait) or an image picked in Settings or the desktop menu, stored
+as `files/desktop/wallpaper.jpg`. Per-app rotation does not apply inside
+the desktop.
+
+GTK 3 ignores xdg-decoration; it draws its own title bar unless KDE's
+`org_kde_kwin_server_decoration_manager` announces the default mode
+"server" (`compositor/decoration.c`, `protocol/server-decoration.xml`,
+reduced to the interface). The same desktop mode sets it
+(`Compositor.serverDecorations` -> `dnc_set_server_decorations`): "server"
+in freeform and desktop windows, which have Android's caption bar,
+"client" in fullscreen tasks, where GTK's bar holds the only close button.
+GTK reads the mode when it creates a window, so open windows keep their
+choice; header bars that are part of the content (GtkAboutDialog) stay.
 
 Content that does not match its window is zoomed to fit, keeping its
 aspect ratio, and centred (`dnc_toplevel_view` in `compositor/server.c`;
@@ -169,15 +235,42 @@ settings ([per-app-settings.md](per-app-settings.md)).
 
 ## Graphics
 
-- **Adreno (Qualcomm):** Mesa's Turnip driver with the KGSL backend talks
-  to `/dev/kgsl-3d0` directly from the glibc rootfs: hardware Vulkan.
-  OpenGL runs on top of it through Zink. Low-end Adreno (610, 702) need
-  `TU_DEBUG=noconform` to expose Vulkan 1.3, which the environment sets.
-- **Other GPUs:** software rendering (llvmpipe/lavapipe) for now.
+- **Adreno 6xx and newer (Qualcomm):** Mesa's Turnip driver with the KGSL
+  backend talks to `/dev/kgsl-3d0` directly from the glibc rootfs: hardware
+  Vulkan. OpenGL runs on top of it through Zink. Low-end Adreno (610, 702)
+  need `TU_DEBUG=noconform` to expose Vulkan 1.3, which the environment
+  sets. Built for aarch64 and armv7l, so a 32-bit Android on a 64-bit
+  phone gets the same.
+- **Every other GPU (Mali, PowerVR, Adreno up to 5xx):** OpenGL through
+  virgl. The app runs virglrenderer's vtest server (`env/Virgl.kt`,
+  `libvirgl-server.so` from `native-host/build.sh`, patches from Termux's
+  virglrenderer-android in `native-host/patches/virglrenderer`) on
+  Android's own GLES driver; Mesa's virpipe driver in the guest sends it
+  the GL commands over `/run/droidnative/virgl.sock` (`VTEST_SOCKET_NAME`,
+  set in `Proot.guestEnv`). The server forks one renderer per client.
+  Frames come back by CPU readback, so virgl is slower than Turnip but
+  about three times llvmpipe (glmark2 off-screen on the Redmi Note 8T: 447
+  against 155). Vulkan stays lavapipe there.
+- **No GPU at all:** software rendering (llvmpipe/lavapipe).
 - **Flatpak apps** use their runtime's Mesa, so DroidNative installs its
   own GL extension `org.freedesktop.Platform.GL.droidnative` (Turnip, Zink)
   and selects it with `FLATPAK_GL_DRIVERS`.
-- `dn-gl <auto|zink|gl4es|llvmpipe>` picks the OpenGL backend per program.
+- `dn-gl <auto|zink|virgl|gl4es|llvmpipe>` picks the OpenGL backend per
+  program (the per-app "Graphics backend" setting). `auto` is Zink when
+  Turnip enumerates the GPU (checked once with `vulkaninfo` and cached in
+  `/run/droidnative/dn-gl-turnip`; `/dev/kgsl-3d0` alone is not enough,
+  Adreno 3xx-5xx have it too), else virgl when its socket exists, else
+  llvmpipe; gl4es runs on the same choice. Programs started without a
+  backend setting do not go through dn-gl and keep Mesa's own choice
+  (Zink on Turnip, llvmpipe elsewhere).
+
+Mali kbase: Mesa's Panfrost/PanVK need the DRM driver (`/dev/dri`), while
+Android phones ship ARM's kbase (`/dev/mali0`). Mesa has no kbase backend
+upstream; community forks exist per GPU generation (PanVK for G615 and
+G720 on CSF, Panfrost for Bifrost and G57), all experimental and tested
+on single phones. Without a Mali test device DroidNative uses virgl
+there; Venus (Vulkan through virglrenderer onto Android's Vulkan driver)
+would be the next step for Vulkan on such GPUs.
 
 Android kernels lack implicit dma-buf synchronisation, so a Mesa patch
 makes the Wayland WSI wait for each frame on the CPU before presenting.
@@ -185,6 +278,101 @@ makes the Wayland WSI wait for each frame on the CPU before presenting.
 Text input v1 (`compositor/text_input.c`) exists beside v3 for Chromium
 and Electron (Chromium 126 knows only v1, later ones v3 only on request): a v1 input counts as
 active between activate and deactivate on the focused surface.
+
+X11 programs have no text-input protocol. dn-notifyd therefore also
+answers as a minimal Fcitx 5 input method on the session bus, and dn-xwm
+is the XSETTINGS manager with `Gtk/IMModule=fcitx`, so GTK programs on X11
+(Steam's web helper loads GTK 3 through box64) report their text fields
+through the fcitx5-gtk module; SDL does the same with
+`SDL_IM_MODULE=fcitx` (`Proot.baseEnv`). The app opens the keyboard on the
+focused window and types the text as key presses where the keymap has
+the characters, else sends it back as `CommitString`
+(`WindowActivity.sendText`, `Compositor.inputMethodFocus`, details in
+[bridge-protocol.md](bridge-protocol.md)). Keys are needed because
+Chromium (Steam's CEF 126) drops input method text in password fields. GTK on Wayland never reads
+XSETTINGS and keeps text-input.
+
+Surfaces honour `wp_viewporter` destinations (`compositor/viewporter.c`;
+the size replaces buffer size / scale for drawing and input, source crops
+are not drawn yet), input regions (`dnc_region_contains`) and get
+`wl_surface.enter` for the output. Firefox needs the first two: it
+attaches its content subsurface at device resolution with the window size
+as viewport destination, and gives it an empty input region so clicks
+reach the GTK window below.
+
+Firefox and LibreWolf: SELinux denies apps the reopen of a memfd through
+`/proc/self/fd`, so Firefox's parent process uses unsealed `shm_open`
+memory while its children use sealed memfds and reject the parent's
+("Shared memory PlatformHandle is not safe to map", then SIGSEGV).
+`MOZ_SHM_NO_SEALS=1` (`Proot.baseEnv`) makes every process check only the
+size. The content sandbox works through the proot fork's handling of the
+program's own seccomp filter (fork `doc/droidnative-storage.md`).
+
+## x86 programs
+
+On ARM, x86 Linux programs run emulated: box64 (aarch64; its BOX32 mode
+covers 32-bit x86) and box86 (armv7l), both packaged in xbps-repository
+and installed by setup.sh. They replace common libraries (libc, GL,
+SDL, X11, ...) with the native ones, so only the program itself is
+emulated. The kernel's binfmt_misc needs root, so the proot fork emulates
+it (`src/execve/binfmt.c`, called from `expand_shebang`): an `execve` of a
+file matching a rule in the guest's `/etc/binfmt.d` or
+`/usr/lib/binfmt.d` (systemd format, as box64 installs them) becomes a run
+of the rule's interpreter with the program's path in front of its
+arguments. The rules are read from the rootfs and re-read when they
+change; `PROOT_NO_BINFMT=1` switches this off. AppImages for x86 are
+accepted when the emulator is installed (`dn-appimage` `emulator_for`,
+`AppImages.runInstall`).
+
+Wine: package `wine-x86` (aarch64,
+`xbps-repository/srcpkgs/wine-x86`) repackages Kron4ek's portable x86_64
+WoW64 build into `/opt/wine-x86`, with symlinks in `/usr/bin` (`wine`,
+`winecfg`, `wineserver`, ...). WoW64 runs 32-bit Windows programs inside
+the 64-bit Wine, so box64 alone runs both kinds, without BOX32 or 32-bit
+Linux libraries. Wine finds its DLLs next to the real file: box64 sets
+`/proc/self/exe` to the realpath of the program. The libraries Wine
+dlopens (X11, GL, Vulkan, ALSA/Pulse, freetype, fontconfig, gnutls) are
+wrapped by box64, which uses the native ones from the package's
+depends; only pcsclite (smart cards) and v4l2 (webcams) are not wrapped.
+Headers, winegcc and the import libraries are left out (about 100 MB).
+Wine maps PE files privately and relocates them in place before making
+the code executable; Android's SELinux denies that (`execmod`), so the
+proot fork redoes such an `mprotect` on an anonymous copy (fork
+`doc/droidnative-storage.md`, "Exec of written file pages").
+
+Steam: package `droidnative-steam` (aarch64) provides `steam`, which
+downloads Valve's Linux bootstrap on first start and runs it through
+box64 (a box64 commit after 0.4.4: BOX32 needs `__sched_cpualloc`). It
+reaches the sign-in window on the Redmi Note 8T (a minute from the app
+list once installed; the first start downloads about 500 MB). What it
+took, besides binfmt:
+
+- proot's loader sat with its ELF headers at 0x200000, where the non-PIE
+  `steamwebhelper` must load; the loader is now linked with its image base
+  at `LOADER_ADDRESS` (`src/GNUmakefile`).
+- Every tracee has PRoot as tracer in `/proc/<pid>/status`, so Steam's
+  `Plat_IsInDebugSession` saw a debugger and stopped in `int3` after an
+  assertion. Opens of that file get a copy with `TracerPid: 0`
+  (`maybe_hide_tracer`, `src/syscall/enter.c`).
+- Steam accepts a connection of its web UI only after `lsof -i TCP@...`
+  names the connecting process; Android denies apps `/proc/net/tcp` and
+  sock_diag. The fork's `dn_net` extension (`src/extension/dn_net`)
+  records the tracees' TCP sockets (chained getsockname/getpeername after
+  bind, listen, connect and accept) and generates `/proc/net/tcp{,6}`.
+- Android's app seccomp filter traps `set_robust_list`/`get_robust_list`;
+  Chromium aborts without a registered list ("futex robust_list not
+  initialized by pthreads"). PRoot keeps the values per thread
+  (`src/tracee/seccomp.c`).
+- The launcher passes `-cef-force-gpu` (else Steam falls back to
+  SwiftShader, whose x86 Vulkan driver the wrapped native loader cannot
+  use) and `-noverifyfiles` (the verification re-extracted the whole
+  client on every start, minutes under PRoot).
+
+Limits: x86 Flatpak apps do not run yet (inside the sandbox
+`/usr` is the x86 runtime, where the dynamically linked box64 finds no
+ARM libraries), and FEX is not used: it supports only real Linux systems
+(its FAQ rules out Android and leans on syscalls Android's seccomp
+blocks), while box64 is known to work on Android kernels from 4.x on.
 
 ## AppImages
 
